@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Money Tracker</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>Money Tracker</h1>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Add Income Section -->
+    <section class="card" id="add-income-section">
+      <h2>Add Income</h2>
+      <form id="income-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="income-amount">Amount (₱)</label>
+            <input type="number" id="income-amount" name="income-amount" min="0.01" step="0.01" placeholder="0.00" required>
+          </div>
+          <div class="form-group">
+            <label for="income-source">Source</label>
+            <select id="income-source" name="income-source" required>
+              <option value="Side Hustle">Side Hustle</option>
+              <option value="Paycheck">Paycheck</option>
+              <option value="Freelance">Freelance</option>
+              <option value="Gift">Gift</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="income-description">Description</label>
+            <input type="text" id="income-description" name="income-description" placeholder="e.g. freelance project, sold something" required>
+          </div>
+          <div class="form-group">
+            <label for="income-date">Date</label>
+            <input type="date" id="income-date" name="income-date" required>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-success">Add Income</button>
+      </form>
+    </section>
+
+    <!-- Add Expense Form -->
+    <section class="card" id="add-expense-section">
+      <h2>Add Expense</h2>
+      <form id="expense-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="amount">Amount (₱)</label>
+            <input type="number" id="amount" name="amount" min="0.01" step="0.01" placeholder="0.00" required>
+          </div>
+          <div class="form-group">
+            <label for="category">Category</label>
+            <select id="category" name="category" required>
+              <option value="Food">Food</option>
+              <option value="Transport">Transport</option>
+              <option value="Bills">Bills</option>
+              <option value="Entertainment">Entertainment</option>
+              <option value="Shopping">Shopping</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="description">Description</label>
+            <input type="text" id="description" name="description" placeholder="What was this for?" required>
+          </div>
+          <div class="form-group">
+            <label for="date">Date</label>
+            <input type="date" id="date" name="date" required>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Add Expense</button>
+      </form>
+    </section>
+
+    <!-- Summary Section -->
+    <section class="card" id="summary-section">
+      <h2>Summary</h2>
+      <div class="summary-total">
+        <span class="total-label">Total Spent:</span>
+        <span class="total-amount" id="total-amount">₱0.00</span>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="chart"></canvas>
+      </div>
+    </section>
+
+    <!-- Balance Section -->
+    <section class="card balance-card" id="balance-section">
+      <h2>Running Balance</h2>
+      <div class="balance-display" id="balance-display">
+        <span class="balance-label">Current Balance:</span>
+        <span class="balance-amount" id="balance-amount">₱0.00</span>
+      </div>
+    </section>
+
+    <!-- Filters Section -->
+    <section class="card" id="filters-section">
+      <h2>Filters</h2>
+      <form id="filter-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="filter-from">From</label>
+            <input type="date" id="filter-from" name="filter-from">
+          </div>
+          <div class="form-group">
+            <label for="filter-to">To</label>
+            <input type="date" id="filter-to" name="filter-to">
+          </div>
+          <div class="form-group">
+            <label for="filter-category">Category</label>
+            <select id="filter-category" name="filter-category">
+              <option value="All">All</option>
+              <option value="Food">Food</option>
+              <option value="Transport">Transport</option>
+              <option value="Bills">Bills</option>
+              <option value="Entertainment">Entertainment</option>
+              <option value="Shopping">Shopping</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="filter-actions">
+          <button type="button" class="btn btn-primary" id="filter-btn">Apply Filters</button>
+          <button type="button" class="btn btn-secondary" id="clear-filters-btn">Clear Filters</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Income Table -->
+    <section class="card" id="income-table-section">
+      <div class="table-wrapper">
+        <table id="income-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Source</th>
+              <th>Description</th>
+              <th>Amount</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="income-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <h2 class="transaction-log-heading">Transaction Log</h2>
+
+    <!-- Expenses Table -->
+    <section class="card" id="expenses-section">
+      <h2>Expenses</h2>
+      <div id="empty-state" class="empty-state">
+        <p>No expenses yet. Add your first one above!</p>
+      </div>
+      <div class="table-wrapper">
+        <table id="expenses-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Amount</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="expenses-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,552 @@
+/* ===== Data ===== */
+
+/**
+ * Load expenses from localStorage.
+ * @returns {Array}
+ */
+function loadExpenses() {
+  try {
+    const data = localStorage.getItem('expenses');
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Save expenses to localStorage.
+ * @param {Array} expenses
+ */
+function saveExpenses(expenses) {
+  localStorage.setItem('expenses', JSON.stringify(expenses));
+}
+
+/* ===== Income Data ===== */
+
+/**
+ * Load income from localStorage.
+ * @returns {Array}
+ */
+function loadIncome() {
+  try {
+    const data = localStorage.getItem('income-tracker-income');
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Save income to localStorage.
+ * @param {Array} income
+ */
+function saveIncome(income) {
+  localStorage.setItem('income-tracker-income', JSON.stringify(income));
+}
+
+/* ===== Chart Instance ===== */
+let chartInstance = null;
+
+/* ===== Render Functions ===== */
+
+/**
+ * Build the table rows from an expenses array.
+ * Shows/hides the empty state.
+ * @param {Array} expenses
+ */
+function renderTable(expenses) {
+  const tbody = document.getElementById('expenses-body');
+  const emptyState = document.getElementById('empty-state');
+
+  if (!expenses.length) {
+    tbody.innerHTML = '';
+    emptyState.style.display = 'block';
+    renderBalance();
+    renderIncomeTable();
+    return;
+  }
+
+  emptyState.style.display = 'none';
+
+  tbody.innerHTML = expenses
+    .map(
+      (exp) => `
+      <tr>
+        <td>${formatDate(exp.date)}</td>
+        <td><span class="category-badge ${exp.category.toLowerCase()}">${exp.category}</span></td>
+        <td>${escapeHtml(exp.description)}</td>
+        <td><strong>${formatCurrency(exp.amount)}</strong></td>
+        <td><button class="delete-btn" data-id="${exp.id}">✕ Delete</button></td>
+      </tr>`
+    )
+    .join('');
+  renderBalance();
+  renderIncomeTable();
+}
+
+/**
+ * Update the total display and pie chart.
+ * @param {Array} expenses
+ */
+function renderSummary(expenses) {
+  const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+  document.getElementById('total-amount').textContent = formatCurrency(total);
+
+  renderChart(expenses);
+}
+
+/**
+ * Calculate and display the running balance.
+ * Balance = total income - total expenses (unfiltered).
+ */
+function renderBalance() {
+  const expenses = loadExpenses();
+  const income = loadIncome();
+
+  const totalIncome = income.reduce((sum, i) => sum + i.amount, 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const balance = totalIncome - totalExpenses;
+
+  const balanceEl = document.getElementById('balance-amount');
+  balanceEl.textContent = formatCurrency(Math.abs(balance));
+
+  balanceEl.classList.remove('positive', 'negative');
+  if (balance > 0) {
+    balanceEl.classList.add('positive');
+  } else if (balance < 0) {
+    balanceEl.classList.add('negative');
+  }
+}
+
+/**
+ * Render the income table with all income entries.
+ */
+function renderIncomeTable() {
+  const tbody = document.getElementById('income-body');
+  const income = loadIncome();
+
+  if (!income.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-state"><p>No income yet. Add your first one above!</p></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = income
+    .map(
+      (inc) => `
+      <tr class="income-row">
+        <td>${formatDate(inc.date)}</td>
+        <td>${escapeHtml(inc.source)}</td>
+        <td>${escapeHtml(inc.description)}</td>
+        <td>${formatCurrency(inc.amount)}</td>
+        <td><button class="delete-btn" data-id="${inc.id}">✕ Delete</button></td>
+      </tr>`
+    )
+    .join('');
+}
+
+/**
+ * Draw (or update) a Chart.js pie chart of spending by category.
+ * Destroys previous chart instance before creating a new one.
+ * @param {Array} expenses
+ */
+function renderChart(expenses) {
+  const ctx = document.getElementById('chart').getContext('2d');
+
+  // Destroy previous chart
+  if (chartInstance) {
+    chartInstance.destroy();
+    chartInstance = null;
+  }
+
+  // Aggregate by category
+  const categoryTotals = {};
+  const categoryColors = {
+    Food: '#ff6384',
+    Transport: '#36a2eb',
+    Bills: '#ffce56',
+    Entertainment: '#4bc0c0',
+    Shopping: '#9966ff',
+    Other: '#ff9f40',
+  };
+
+  expenses.forEach((exp) => {
+    categoryTotals[exp.category] = (categoryTotals[exp.category] || 0) + exp.amount;
+  });
+
+  const labels = Object.keys(categoryTotals);
+  const data = Object.values(categoryTotals);
+  const colors = labels.map((l) => categoryColors[l] || '#999');
+
+  if (!labels.length) {
+    // No data — show a placeholder message on canvas
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.font = '14px sans-serif';
+    ctx.fillStyle = '#999';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data to display', ctx.canvas.width / 2, ctx.canvas.height / 2);
+    return;
+  }
+
+  chartInstance = new Chart(ctx, {
+    type: 'pie',
+    data: {
+      labels,
+      datasets: [
+        {
+          data,
+          backgroundColor: colors,
+          borderColor: '#fff',
+          borderWidth: 2,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            padding: 16,
+            usePointStyle: true,
+          },
+        },
+        tooltip: {
+          callbacks: {
+            label: function (context) {
+              const total = context.dataset.data.reduce((a, b) => a + b, 0);
+              const value = context.parsed;
+              const pct = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+              return ` ${context.label}: ${formatCurrency(value)} (${pct}%)`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+/* ===== Filter Functions ===== */
+
+/**
+ * Read filter values and re-render with filtered expenses.
+ */
+function applyFilters() {
+  const from = document.getElementById('filter-from').value;
+  const to = document.getElementById('filter-to').value;
+  const category = document.getElementById('filter-category').value;
+
+  let expenses = loadExpenses();
+
+  // Filter by date range
+  if (from) {
+    expenses = expenses.filter((e) => e.date >= from);
+  }
+  if (to) {
+    expenses = expenses.filter((e) => e.date <= to);
+  }
+
+  // Filter by category
+  if (category !== 'All') {
+    expenses = expenses.filter((e) => e.category === category);
+  }
+
+  renderTable(expenses);
+  renderSummary(expenses);
+}
+
+/**
+ * Clear all filter inputs and show all expenses.
+ */
+function resetFilters() {
+  document.getElementById('filter-from').value = '';
+  document.getElementById('filter-to').value = '';
+  document.getElementById('filter-category').value = 'All';
+
+  const expenses = loadExpenses();
+  renderTable(expenses);
+  renderSummary(expenses);
+}
+
+/* ===== CRUD Operations ===== */
+
+/**
+ * Add a new expense, persist, and re-render.
+ * @param {Object} expense
+ */
+function addExpense(expense) {
+  const expenses = loadExpenses();
+  expenses.push(expense);
+  saveExpenses(expenses);
+  renderTable(expenses);
+  renderSummary(expenses);
+  renderBalance();
+  renderIncomeTable();
+}
+
+/**
+ * Delete an expense by id, persist, and re-render.
+ * @param {number} id
+ */
+function deleteExpense(id) {
+  let expenses = loadExpenses();
+  expenses = expenses.filter((e) => e.id !== id);
+  saveExpenses(expenses);
+  renderTable(expenses);
+  renderSummary(expenses);
+  renderBalance();
+  renderIncomeTable();
+}
+
+/* ===== Income CRUD ===== */
+
+/**
+ * Add a new income item, persist, and re-render.
+ * @param {Object} incomeItem
+ */
+function addIncome(incomeItem) {
+  const income = loadIncome();
+  income.push(incomeItem);
+  saveIncome(income);
+  renderIncomeTable();
+  renderBalance();
+}
+
+/**
+ * Delete an income item by id, persist, and re-render.
+ * @param {number} id
+ */
+function deleteIncome(id) {
+  let income = loadIncome();
+  income = income.filter((i) => i.id !== id);
+  saveIncome(income);
+  renderIncomeTable();
+  renderBalance();
+}
+
+/* ===== Budget Functions ===== */
+
+/**
+ * Load the saved monthly budget from localStorage.
+ * @returns {number|null}
+ */
+function loadBudget() {
+  try {
+    const val = localStorage.getItem('monthlyBudget');
+    return val !== null ? parseFloat(val) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Save the monthly budget to localStorage.
+ * @param {number} amount
+ */
+function saveBudget(amount) {
+  localStorage.setItem('monthlyBudget', String(amount));
+}
+
+/**
+ * Render the budget display: budget, current-month spent, remaining.
+ * Always shows current-month spending regardless of filters.
+ * @param {Array} allExpenses — full unfiltered expense list
+ */
+function renderBudget(allExpenses) {
+  const display = document.getElementById('budget-display');
+  const budget = loadBudget();
+
+  if (budget === null || budget <= 0) {
+    display.innerHTML = '<p class="budget-not-set">Set a monthly budget to track your remaining money</p>';
+    return;
+  }
+
+  // Filter expenses to current month only
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth(); // 0-based
+
+  const monthSpent = allExpenses.reduce((sum, e) => {
+    const d = new Date(e.date + 'T00:00:00');
+    if (d.getFullYear() === currentYear && d.getMonth() === currentMonth) {
+      return sum + e.amount;
+    }
+    return sum;
+  }, 0);
+
+  const remaining = budget - monthSpent;
+  const remainingClass = remaining >= 0 ? 'remaining-positive' : 'remaining-negative';
+
+  display.innerHTML = `
+    <div class="budget-stats">
+      <div class="budget-stat">
+        <span class="budget-stat-label">Budget</span>
+        <span class="budget-stat-value">${formatCurrency(budget)}</span>
+      </div>
+      <div class="budget-stat">
+        <span class="budget-stat-label">Spent</span>
+        <span class="budget-stat-value">${formatCurrency(monthSpent)}</span>
+      </div>
+      <div class="budget-stat">
+        <span class="budget-stat-label">Remaining</span>
+        <span class="budget-stat-value ${remainingClass}">${formatCurrency(remaining)}</span>
+      </div>
+    </div>
+  `;
+}
+
+/* ===== Utility Functions ===== */
+
+/**
+ * Format a number as Philippine Peso currency.
+ * @param {number} amount
+ * @returns {string}
+ */
+function formatCurrency(amount) {
+  return '₱' + amount.toFixed(2);
+}
+
+/**
+ * Format a YYYY-MM-DD date string for display.
+ * @param {string} dateStr
+ * @returns {string}
+ */
+function formatDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const options = { year: 'numeric', month: 'short', day: 'numeric' };
+  return d.toLocaleDateString('en-PH', options);
+}
+
+/**
+ * Escape HTML entities to prevent XSS.
+ * @param {string} text
+ * @returns {string}
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.appendChild(document.createTextNode(text));
+  return div.innerHTML;
+}
+
+/* ===== Initialization ===== */
+
+document.addEventListener('DOMContentLoaded', function () {
+  // Set default date to today
+  document.getElementById('date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('income-date').value = new Date().toISOString().split('T')[0];
+
+  // Initial render
+  const expenses = loadExpenses();
+  renderTable(expenses);
+  renderSummary(expenses);
+  renderBalance();
+  renderIncomeTable();
+
+  // Load saved budget into input
+  const savedBudget = loadBudget();
+  if (savedBudget !== null && savedBudget > 0) {
+    document.getElementById('budget-input').value = savedBudget;
+  }
+
+  // Set budget button
+  document.getElementById('set-budget-btn').addEventListener('click', function () {
+    const input = document.getElementById('budget-input');
+    const val = parseFloat(input.value);
+    if (isNaN(val) || val < 0) {
+      alert('Please enter a valid budget amount (0 or more).');
+      return;
+    }
+    saveBudget(val);
+    renderBudget(loadExpenses());
+  });
+
+  // Expense form submit handler
+  document.getElementById('expense-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+
+    const amount = parseFloat(document.getElementById('amount').value);
+    const category = document.getElementById('category').value;
+    const description = document.getElementById('description').value.trim();
+    const date = document.getElementById('date').value;
+
+    // Validation
+    if (!amount || amount <= 0 || isNaN(amount)) {
+      alert('Please enter a valid amount greater than 0.');
+      return;
+    }
+
+    if (!description) {
+      alert('Please enter a description.');
+      return;
+    }
+
+    const expense = {
+      id: Date.now(),
+      amount,
+      category,
+      description,
+      date,
+    };
+
+    addExpense(expense);
+    this.reset();
+    // Re-set default date after reset
+    document.getElementById('date').value = new Date().toISOString().split('T')[0];
+  });
+
+  // Income form submit handler
+  document.getElementById('income-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+
+    const amount = parseFloat(document.getElementById('income-amount').value);
+    const source = document.getElementById('income-source').value;
+    const description = document.getElementById('income-description').value.trim();
+    const date = document.getElementById('income-date').value;
+
+    if (!amount || amount <= 0 || isNaN(amount)) {
+      alert('Please enter a valid amount greater than 0.');
+      return;
+    }
+
+    if (!description) {
+      alert('Please enter a description.');
+      return;
+    }
+
+    const incomeItem = {
+      id: Date.now(),
+      amount,
+      source,
+      description,
+      date,
+    };
+
+    addIncome(incomeItem);
+    this.reset();
+    document.getElementById('income-date').value = new Date().toISOString().split('T')[0];
+  });
+
+  // Filter button
+  document.getElementById('filter-btn').addEventListener('click', applyFilters);
+
+  // Clear filters button
+  document.getElementById('clear-filters-btn').addEventListener('click', resetFilters);
+
+  // Event delegation for expense delete buttons
+  document.getElementById('expenses-body').addEventListener('click', function (e) {
+    const btn = e.target.closest('.delete-btn');
+    if (btn) {
+      const id = Number(btn.dataset.id);
+      deleteExpense(id);
+    }
+  });
+
+  // Event delegation for income delete buttons
+  document.getElementById('income-body').addEventListener('click', function (e) {
+    const btn = e.target.closest('.delete-btn');
+    if (btn) {
+      const id = Number(btn.dataset.id);
+      deleteIncome(id);
+    }
+  });
+});

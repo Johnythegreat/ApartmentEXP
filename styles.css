@@ -1,0 +1,489 @@
+/* ===== Reset & Base ===== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: #f0f2f5;
+  color: #333;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* ===== Header ===== */
+header {
+  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  color: #fff;
+  padding: 24px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  margin-bottom: 32px;
+}
+
+header h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+/* ===== Cards ===== */
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease;
+}
+
+.card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.card h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #1a1a2e;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #f0f2f5;
+}
+
+/* ===== Forms ===== */
+.form-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.form-group {
+  flex: 1;
+  min-width: 180px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 6px;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid #ddd;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: #333;
+  background: #fafafa;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #4a6cf7;
+  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.15);
+  background: #fff;
+}
+
+/* ===== Buttons ===== */
+.btn {
+  display: inline-block;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: #4a6cf7;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #3b5de7;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(74, 108, 247, 0.3);
+}
+
+.btn-secondary {
+  background: #e8e8e8;
+  color: #555;
+}
+
+.btn-secondary:hover {
+  background: #d5d5d5;
+  transform: translateY(-1px);
+}
+
+.filter-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ===== Budget Card ===== */
+.budget-card {
+  border-left: 4px solid #10b981;
+  background: linear-gradient(135deg, #f0fdf4, #ffffff);
+}
+
+.budget-card h2 {
+  border-bottom-color: #a7f3d0;
+  color: #065f46;
+}
+
+.budget-input-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.budget-input-row .form-group {
+  flex: 1;
+  min-width: 200px;
+  margin-bottom: 0;
+}
+
+.budget-input-row .btn-accent {
+  flex-shrink: 0;
+  height: 42px;
+  padding: 10px 24px;
+}
+
+.btn-accent {
+  background: #10b981;
+  color: #fff;
+}
+
+.btn-accent:hover {
+  background: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.budget-display {
+  padding: 16px;
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  text-align: center;
+}
+
+.budget-not-set {
+  color: #9ca3af;
+  font-size: 0.95rem;
+  font-style: italic;
+}
+
+.budget-stats {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 1rem;
+}
+
+.budget-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.budget-stat-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.budget-stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.budget-stat-value.remaining-positive {
+  color: #10b981;
+}
+
+.budget-stat-value.remaining-negative {
+  color: #ef4444;
+}
+
+/* ===== Summary ===== */
+.summary-total {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f8f9ff;
+  border-radius: 10px;
+}
+
+.total-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #555;
+}
+
+.total-amount {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.chart-wrapper {
+  max-width: 360px;
+  margin: 0 auto;
+  position: relative;
+}
+
+/* ===== Table ===== */
+.table-wrapper {
+  overflow-x: auto;
+}
+
+#expenses-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+#expenses-table thead {
+  background: #1a1a2e;
+  color: #fff;
+}
+
+#expenses-table th {
+  padding: 12px 14px;
+  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+#expenses-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #eee;
+  vertical-align: middle;
+}
+
+#expenses-table tbody tr:nth-child(even) {
+  background: #f8f9fa;
+}
+
+#expenses-table tbody tr:hover {
+  background: #eef1ff;
+  transition: background 0.15s ease;
+}
+
+/* ===== Category Badges ===== */
+.category-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.category-badge.food { background: #ff6384; }
+.category-badge.transport { background: #36a2eb; }
+.category-badge.bills { background: #ffce56; color: #333; }
+.category-badge.entertainment { background: #4bc0c0; }
+.category-badge.shopping { background: #9966ff; }
+.category-badge.other { background: #ff9f40; }
+
+/* ===== Delete Button ===== */
+.delete-btn {
+  background: #ff4757;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.delete-btn:hover {
+  background: #e84142;
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
+}
+
+/* ===== Empty State ===== */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+
+.empty-state p {
+  font-size: 1rem;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 640px) {
+  header {
+    padding: 16px 0;
+    margin-bottom: 20px;
+  }
+
+  header h1 {
+    font-size: 1.4rem;
+  }
+
+  .card {
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .form-group {
+    min-width: 100%;
+  }
+
+  .summary-total {
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+  }
+
+  .total-amount {
+    font-size: 1.6rem;
+  }
+
+  .filter-actions {
+    flex-direction: column;
+  }
+
+  .filter-actions .btn {
+    width: 100%;
+  }
+
+  #expenses-table th,
+  #expenses-table td {
+    padding: 8px 10px;
+    font-size: 0.8rem;
+  }
+
+  .delete-btn {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+  }
+}
+
+/* Income Section */
+#add-income-section {
+  border-left: 4px solid #22c55e;
+}
+
+#add-income-section h2 {
+  color: #22c55e;
+}
+
+.btn-success {
+  background: #22c55e;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-success:hover {
+  background: #16a34a;
+}
+
+/* Balance Section */
+.balance-card {
+  background: linear-gradient(135deg, #1e293b, #334155);
+  color: white;
+  border: none;
+}
+
+.balance-display {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.balance-label {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  opacity: 0.8;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.balance-amount {
+  font-size: 48px;
+  font-weight: 700;
+}
+
+.balance-amount.positive {
+  color: #22c55e;
+}
+
+.balance-amount.negative {
+  color: #ef4444;
+}
+
+/* Income Table */
+.income-row td:last-child {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.income-row .delete-btn {
+  background: #dc2626;
+  color: white;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.income-row .delete-btn:hover {
+  background: #b91c1c;
+}
+
+/* Transaction Log heading */
+.transaction-log-heading {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 2px solid #e2e8f0;
+}
