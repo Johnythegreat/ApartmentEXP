@@ -137,12 +137,14 @@ function renderBalance() {
   const income = loadIncome();
 
   const totalIncome = income.reduce((sum, i) => sum + i.amount, 0);
+  const paidIncome = income.reduce((sum, i) => sum + (i.paid ? i.amount : 0), 0);
+  const unpaidIncome = totalIncome - paidIncome;
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const balance = totalIncome - totalExpenses;
+  const balance = paidIncome - totalExpenses;
 
   const totalIncomeEl = document.getElementById('total-income-amount');
   const totalExpenseEl = document.getElementById('total-expense-amount');
-  if (totalIncomeEl) totalIncomeEl.textContent = formatCurrency(totalIncome);
+  if (totalIncomeEl) totalIncomeEl.textContent = `${formatCurrency(paidIncome)} paid / ${formatCurrency(unpaidIncome)} unpaid`;
   if (totalExpenseEl) totalExpenseEl.textContent = formatCurrency(totalExpenses);
 
   const balanceEl = document.getElementById('balance-amount');
@@ -158,6 +160,7 @@ function renderBalance() {
   } else if (balance < 0) {
     balanceEl.classList.add('negative');
   }
+  renderCycleStatus();
 }
 
 /**
@@ -172,7 +175,7 @@ function renderIncomeTable() {
   const income = loadIncome();
 
   if (!income.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-state"><p>No income yet. Add your first one above!</p></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state"><p>No income yet. Add your first one above!</p></td></tr>`;
     return;
   }
 
@@ -184,6 +187,12 @@ function renderIncomeTable() {
         <td>${escapeHtml(inc.source)}</td>
         <td>${escapeHtml(inc.description)}</td>
         <td>${formatCurrency(inc.amount)}</td>
+        <td>
+          <label class="paid-check" title="Check if this income is already paid">
+            <input type="checkbox" class="paid-toggle" data-id="${inc.id}" ${inc.paid ? 'checked' : ''}>
+            <span>${inc.paid ? 'Paid' : 'Unpaid'}</span>
+          </label>
+        </td>
         <td><button class="delete-btn" data-id="${inc.id}">✕ Delete</button></td>
       </tr>`
     )
@@ -367,6 +376,20 @@ function addIncome(incomeItem) {
  * Delete an income item by id, persist, and re-render.
  * @param {number} id
  */
+
+/**
+ * Toggle income paid status. Only checked income counts as money in for the remaining balance.
+ * @param {number} id
+ * @param {boolean} paid
+ */
+function toggleIncomePaid(id, paid) {
+  const income = loadIncome().map((i) => (i.id === id ? { ...i, paid } : i));
+  saveIncome(income);
+  try { renderIncomeTable(); } catch (e) { console.warn('toggleIncomePaid: renderIncomeTable failed', e); }
+  try { renderBalance(); } catch (e) { console.warn('toggleIncomePaid: renderBalance failed', e); }
+  try { renderSummary(loadExpenses()); } catch (e) { console.warn('toggleIncomePaid: renderSummary failed', e); }
+}
+
 function deleteIncome(id) {
   let income = loadIncome();
   income = income.filter((i) => i.id !== id);
@@ -448,6 +471,93 @@ function renderBudget(allExpenses) {
   `;
 }
 
+
+/* ===== 15-Day Cycle Reset With Carryover ===== */
+const CYCLE_START_KEY = 'apartment-budget-cycle-start';
+const CYCLE_DAYS = 15;
+
+function getTodayString() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function daysBetween(dateA, dateB) {
+  const a = new Date(dateA + 'T00:00:00');
+  const b = new Date(dateB + 'T00:00:00');
+  return Math.floor((b - a) / (1000 * 60 * 60 * 24));
+}
+
+function getCurrentBalance() {
+  const expenses = loadExpenses();
+  const income = loadIncome();
+  const paidIncome = income.reduce((sum, i) => sum + (i.paid ? i.amount : 0), 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  return paidIncome - totalExpenses;
+}
+
+function getCycleStart() {
+  let start = localStorage.getItem(CYCLE_START_KEY);
+  if (!start) {
+    start = getTodayString();
+    localStorage.setItem(CYCLE_START_KEY, start);
+  }
+  return start;
+}
+
+function getCycleInfo() {
+  const start = getCycleStart();
+  const used = Math.max(0, daysBetween(start, getTodayString()));
+  const remaining = Math.max(0, CYCLE_DAYS - used);
+  return { start, used, remaining };
+}
+
+function resetCycleWithCarryover(showAlert = true) {
+  const balance = getCurrentBalance();
+  const carryover = balance > 0 ? balance : 0;
+
+  saveExpenses([]);
+  const nextIncome = [];
+
+  if (carryover > 0) {
+    nextIncome.push({
+      id: Date.now(),
+      amount: carryover,
+      source: 'Carryover / Sobra',
+      description: 'Sobra from previous 15-day cycle',
+      date: getTodayString(),
+      paid: true,
+    });
+  }
+
+  saveIncome(nextIncome);
+  localStorage.setItem(CYCLE_START_KEY, getTodayString());
+
+  renderTable(loadExpenses());
+  renderSummary(loadExpenses());
+  renderBalance();
+  renderIncomeTable();
+  renderCycleStatus();
+
+  if (showAlert) {
+    alert(carryover > 0
+      ? `Cycle reset done. Sobra carried over: ${formatCurrency(carryover)}`
+      : 'Cycle reset done. No sobra to carry over.');
+  }
+}
+
+function autoResetCycleIfNeeded() {
+  const info = getCycleInfo();
+  if (info.used >= CYCLE_DAYS) {
+    resetCycleWithCarryover(false);
+  }
+}
+
+function renderCycleStatus() {
+  const status = document.getElementById('cycle-status');
+  if (!status) return;
+  const info = getCycleInfo();
+  status.textContent = `Cycle started ${formatDate(info.start)} • ${info.remaining} day(s) before next auto reset • any sobra will carry over`;
+}
+
 /* ===== Utility Functions ===== */
 
 /**
@@ -506,6 +616,8 @@ function requireAdmin() {
 
 document.addEventListener('DOMContentLoaded', async function () {
   migrateOldDefaultPassword();
+  autoResetCycleIfNeeded();
+  renderCycleStatus();
   // Set default date to today
   const today = new Date().toISOString().split('T')[0];
   const expenseDate = document.getElementById('date');
@@ -626,6 +738,7 @@ document.addEventListener('DOMContentLoaded', async function () {
       source,
       description,
       date,
+      paid: false,
     };
 
     addIncome(incomeItem);
@@ -640,6 +753,16 @@ document.addEventListener('DOMContentLoaded', async function () {
   // Clear filters button
   const clearFiltersBtn = document.getElementById('clear-filters-btn');
   if (clearFiltersBtn) clearFiltersBtn.addEventListener('click', resetFilters);
+
+  const resetCycleBtn = document.getElementById('reset-cycle-btn');
+  if (resetCycleBtn) {
+    resetCycleBtn.addEventListener('click', async function () {
+      const authorized = await requireAdmin();
+      if (!authorized) return;
+      if (!confirm('Reset this 15-day cycle now? Your remaining sobra will be carried over to the next amotan.')) return;
+      resetCycleWithCarryover(true);
+    });
+  }
 
   // Event delegation for expense delete buttons
   const expensesBody = document.getElementById('expenses-body');
@@ -656,6 +779,18 @@ document.addEventListener('DOMContentLoaded', async function () {
   // Event delegation for income delete buttons
   const incomeBody = document.getElementById('income-body');
   if (incomeBody) incomeBody.addEventListener('click', async function (e) {
+    const paidToggle = e.target.closest('.paid-toggle');
+    if (paidToggle) {
+      const authorized = await requireAdmin();
+      if (!authorized) {
+        paidToggle.checked = !paidToggle.checked;
+        return;
+      }
+      const id = Number(paidToggle.dataset.id);
+      toggleIncomePaid(id, paidToggle.checked);
+      return;
+    }
+
     const btn = e.target.closest('.delete-btn');
     if (btn) {
       const authorized = await requireAdmin();

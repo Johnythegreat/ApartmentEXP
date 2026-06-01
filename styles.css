@@ -1,2 +1,61 @@
 /* Apartment Dinner Budget Theme */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}body{font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#fff7ed 0%,#f8efe4 45%,#e7d8c5 100%);color:#2f241c;line-height:1.6;min-height:100vh}.container{max-width:1120px;margin:0 auto;padding:0 20px}.hero{background:linear-gradient(135deg,#4b2e1f,#7c4a27 55%,#c07f3e);color:#fff;padding:34px 0;margin-bottom:28px;box-shadow:0 12px 40px rgba(75,46,31,.25)}.hero-content{display:flex;justify-content:space-between;gap:20px;align-items:center}.eyebrow,.section-kicker{text-transform:uppercase;letter-spacing:.14em;font-size:.72rem;font-weight:800;color:#d97706}.hero .eyebrow{color:#fed7aa}.hero h1{font-size:clamp(2rem,5vw,3.4rem);line-height:1;font-weight:900}.hero-subtitle{max-width:620px;margin-top:10px;color:#ffedd5}.hero-badge{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);padding:14px 18px;border-radius:999px;font-weight:800;white-space:nowrap}.app-layout{display:grid;grid-template-columns:1fr 1fr;gap:18px 20px}.card{background:rgba(255,252,247,.92);border:1px solid rgba(124,74,39,.14);border-radius:22px;padding:22px;box-shadow:0 14px 38px rgba(92,64,42,.12);backdrop-filter:blur(6px)}.card h2{font-size:1.15rem;color:#3a2618;margin-bottom:12px}.section-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:12px}.balance-card{grid-column:1 / -1;background:linear-gradient(135deg,#2f2118,#654321 62%,#a16207);color:white;position:relative;overflow:hidden}.balance-card::after{content:'🍲';position:absolute;right:28px;top:12px;font-size:96px;opacity:.12}.balance-card h2{color:white}.balance-display{text-align:left}.balance-amount{display:block;font-size:clamp(2.4rem,7vw,5rem);line-height:1;font-weight:950;letter-spacing:-.05em}.balance-amount.positive{color:#bbf7d0}.balance-amount.negative{color:#fecaca}.balance-breakdown{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}.balance-breakdown span{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.17);border-radius:14px;padding:10px 14px}.summary-total{background:#fff7ed;border:1px solid #fed7aa;border-radius:18px;padding:12px 14px;text-align:right}.total-label{display:block;font-size:.75rem;text-transform:uppercase;color:#9a5b25;font-weight:800}.total-amount{font-size:1.45rem;font-weight:900;color:#7c2d12}.chart-wrapper{max-width:320px;min-height:230px;margin:0 auto}.accordion{grid-column:span 1;padding:0;overflow:hidden}.accordion summary{list-style:none;cursor:pointer;padding:20px 22px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:900;color:#3a2618}.accordion summary::-webkit-details-marker{display:none}.accordion summary span{font-size:1.05rem}.accordion summary small{font-size:.75rem;color:#9a5b25;font-weight:700;text-align:right}.accordion[open] summary{border-bottom:1px solid rgba(124,74,39,.13);background:#fff7ed}.accordion form,.accordion .helper-text{padding:20px 22px}.helper-text{padding-bottom:0!important;color:#7c4a27}.form-row{display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap}.form-group{flex:1;min-width:190px}.form-group label{display:block;font-size:.82rem;font-weight:800;color:#6b3f24;margin-bottom:6px}.form-group input,.form-group select{width:100%;padding:12px 13px;border:1.5px solid #e9c9a5;border-radius:14px;font-size:.95rem;color:#3a2618;background:#fffaf4;transition:.18s}.form-group input:focus,.form-group select:focus{outline:none;border-color:#c2410c;box-shadow:0 0 0 4px rgba(194,65,12,.12);background:white}.btn{display:inline-block;padding:11px 18px;border:none;border-radius:14px;font-weight:900;cursor:pointer;transition:.18s}.btn:hover{transform:translateY(-1px)}.btn-primary{background:#c2410c;color:white}.btn-success{background:#16a34a;color:white}.btn-secondary{background:#7c4a27;color:white}.filter-actions{display:flex;gap:10px;flex-wrap:wrap}.table-card{grid-column:span 1}.table-wrapper{overflow-x:auto}.scroll-area{max-height:340px;overflow:auto;border-radius:16px;border:1px solid #f1d8bc}table{width:100%;border-collapse:collapse;font-size:.9rem;background:#fffdf9}thead{position:sticky;top:0;background:#4b2e1f;color:white;z-index:1}th,td{padding:12px 14px;text-align:left;border-bottom:1px solid #f3dfc7;vertical-align:middle}tbody tr:nth-child(even){background:#fff7ed}tbody tr:hover{background:#ffedd5}.category-badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:.78rem;font-weight:900;color:white;white-space:nowrap}.category-badge.food{background:#ea580c}.category-badge.transport{background:#2563eb}.category-badge.bills{background:#ca8a04}.category-badge.entertainment{background:#7c3aed}.category-badge.shopping{background:#be123c}.category-badge.other{background:#64748b}.delete-btn{background:#dc2626;color:white;border:none;border-radius:10px;padding:7px 10px;font-size:.78rem;font-weight:900;cursor:pointer;white-space:nowrap}.delete-btn:hover{background:#991b1b}.empty-state{text-align:center;padding:24px;color:#9a5b25}.income-row td:nth-child(4){color:#15803d;font-weight:900}@media(max-width:820px){.hero-content{align-items:flex-start;flex-direction:column}.app-layout{grid-template-columns:1fr}.accordion,.table-card{grid-column:1}.section-title-row{flex-direction:column}.summary-total{text-align:left}.balance-breakdown{flex-direction:column}.form-group{min-width:100%}.scroll-area{max-height:300px}.hero-badge{white-space:normal}}
+/* Paid checkbox for Money In */
+.paid-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.08);
+  color: #14532d;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.paid-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: #22c55e;
+  cursor: pointer;
+}
+
+.income-row:has(.paid-toggle:not(:checked)) {
+  opacity: 0.78;
+}
+
+.income-row:has(.paid-toggle:not(:checked)) .paid-check {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.1);
+  color: #92400e;
+}
+
+.section-title-row small {
+  display: block;
+  margin-top: 4px;
+  color: #7c6a55;
+  font-weight: 600;
+}
+
+
+.cycle-status {
+  margin-top: 12px;
+  color: #ffedd5;
+  font-weight: 700;
+  font-size: 0.9rem;
+  opacity: 0.95;
+}
+
+.btn-danger {
+  background: #b91c1c;
+  color: white;
+  margin-top: 14px;
+}
+
+.btn-danger:hover {
+  background: #7f1d1d;
+}

@@ -14,7 +14,7 @@
       <div>
         <p class="eyebrow">Apartment Budgeting • Dinner Planner</p>
         <h1>Apartment Dinner Budget</h1>
-        <p class="hero-subtitle">Track income, grocery spending, bills, and your remaining balance in one clean dashboard.</p>
+        <p class="hero-subtitle">Track apartment dinner shares, bills, and your remaining balance in one clean dashboard.</p>
       </div>
       <div class="hero-badge">🍽️ Home Budget</div>
     </div>
@@ -31,9 +31,10 @@
       <div class="balance-display" id="balance-display">
         <span class="balance-amount" id="balance-amount">₱0.00</span>
         <div class="balance-breakdown">
-          <span>Total Income: <strong id="total-income-amount">₱0.00</strong></span>
+          <span>Money In: <strong id="total-income-amount">₱0.00 paid / ₱0.00 unpaid</strong></span>
           <span>Total Expenses: <strong id="total-expense-amount">₱0.00</strong></span>
         </div>
+        <p class="cycle-status" id="cycle-status">15-day cycle loading...</p>
       </div>
     </section>
 
@@ -139,6 +140,14 @@
       </form>
     </details>
 
+    <details class="card accordion compact-admin" id="cycle-section">
+      <summary><span>🔄 15-Day Reset</span><small>sobra will carry over</small></summary>
+      <div class="helper-text">
+        <p>When the 15-day cycle resets, logs will clear, but any positive remaining balance / <strong>sobra</strong> will be added as paid carryover for the next amotan.</p>
+        <button type="button" class="btn btn-danger" id="reset-cycle-btn">Reset Cycle Now</button>
+      </div>
+    </details>
+
     <details class="card accordion compact-admin" id="password-section">
       <summary><span>🔐 Admin Settings</span><small>default password: Master</small></summary>
       <p class="helper-text">Use <strong>Master</strong> as the admin password. You can change it here later.</p>
@@ -152,8 +161,8 @@
     </details>
 
     <section class="card table-card" id="income-table-section">
-      <div class="section-title-row"><div><p class="section-kicker">Money In</p><h2>Income Log</h2></div></div>
-      <div class="table-wrapper scroll-area"><table id="income-table"><thead><tr><th>Date</th><th>Source</th><th>Description</th><th>Amount</th><th>Action</th></tr></thead><tbody id="income-body"></tbody></table></div>
+      <div class="section-title-row"><div><p class="section-kicker">Money In</p><h2>Income Log</h2><small>Check the box only when the person already paid.</small></div></div>
+      <div class="table-wrapper scroll-area"><table id="income-table"><thead><tr><th>Date</th><th>Source</th><th>Description</th><th>Amount</th><th>Paid?</th><th>Action</th></tr></thead><tbody id="income-body"></tbody></table></div>
     </section>
 
     <section class="card table-card" id="expenses-section">
