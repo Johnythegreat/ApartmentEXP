@@ -48,9 +48,16 @@ function saveIncome(income) {
 let chartInstance = null;
 
 /* ===== Admin Mode ===== */
-const DEFAULT_ADMIN_PASSWORD = 'admin123';
+const DEFAULT_ADMIN_PASSWORD = 'Master';
 const ADMIN_PASSWORD_KEY = 'money-tracker-admin-password';
 let isAdmin = false;
+
+function migrateOldDefaultPassword() {
+  const saved = localStorage.getItem(ADMIN_PASSWORD_KEY);
+  if (!saved || saved === 'admin123') {
+    localStorage.setItem(ADMIN_PASSWORD_KEY, DEFAULT_ADMIN_PASSWORD);
+  }
+}
 
 function getAdminPassword() {
   return localStorage.getItem(ADMIN_PASSWORD_KEY) || DEFAULT_ADMIN_PASSWORD;
@@ -498,6 +505,7 @@ function requireAdmin() {
 /* ===== Initialization ===== */
 
 document.addEventListener('DOMContentLoaded', async function () {
+  migrateOldDefaultPassword();
   // Set default date to today
   const today = new Date().toISOString().split('T')[0];
   const expenseDate = document.getElementById('date');
