@@ -503,3 +503,11 @@ header h1 {
 .balance-breakdown strong {
   color: #fff;
 }
+
+
+/* Admin password helper */
+.helper-text {
+  color: #64748b;
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+}

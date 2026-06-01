@@ -48,8 +48,25 @@ function saveIncome(income) {
 let chartInstance = null;
 
 /* ===== Admin Mode ===== */
-const ADMIN_PASSWORD = 'admin123';
+const DEFAULT_ADMIN_PASSWORD = 'admin123';
+const ADMIN_PASSWORD_KEY = 'money-tracker-admin-password';
 let isAdmin = false;
+
+function getAdminPassword() {
+  return localStorage.getItem(ADMIN_PASSWORD_KEY) || DEFAULT_ADMIN_PASSWORD;
+}
+
+function changeAdminPassword(currentPassword, newPassword) {
+  if (currentPassword !== getAdminPassword()) {
+    return { ok: false, message: 'Current password is incorrect.' };
+  }
+  if (!newPassword || newPassword.length < 4) {
+    return { ok: false, message: 'New password must be at least 4 characters.' };
+  }
+  localStorage.setItem(ADMIN_PASSWORD_KEY, newPassword);
+  isAdmin = false;
+  return { ok: true, message: 'Admin password updated successfully.' };
+}
 
 /* ===== Render Functions ===== */
 
@@ -466,7 +483,7 @@ function requireAdmin() {
       return;
     }
     const password = prompt('Enter admin password to make changes:');
-    if (password === ADMIN_PASSWORD) {
+    if (password === getAdminPassword()) {
       isAdmin = true;
       resolve(true);
     } else {
@@ -519,8 +536,24 @@ document.addEventListener('DOMContentLoaded', async function () {
     });
   }
 
+  // Change admin password form, only if the optional UI exists
+  const passwordForm = document.getElementById('password-form');
+  if (passwordForm) {
+    passwordForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const currentPassword = document.getElementById('current-password').value;
+      const newPassword = document.getElementById('new-password').value;
+      const result = changeAdminPassword(currentPassword, newPassword);
+      alert(result.message);
+      if (result.ok) {
+        passwordForm.reset();
+      }
+    });
+  }
+
   // Expense form submit handler
-  document.getElementById('expense-form').addEventListener('submit', async function (e) {
+  const expenseForm = document.getElementById('expense-form');
+  if (expenseForm) expenseForm.addEventListener('submit', async function (e) {
     e.preventDefault();
 
     const authorized = await requireAdmin();
@@ -557,7 +590,8 @@ document.addEventListener('DOMContentLoaded', async function () {
   });
 
   // Income form submit handler
-  document.getElementById('income-form').addEventListener('submit', async function (e) {
+  const incomeForm = document.getElementById('income-form');
+  if (incomeForm) incomeForm.addEventListener('submit', async function (e) {
     e.preventDefault();
 
     const authorized = await requireAdmin();
@@ -592,13 +626,16 @@ document.addEventListener('DOMContentLoaded', async function () {
   });
 
   // Filter button
-  document.getElementById('filter-btn').addEventListener('click', applyFilters);
+  const filterBtn = document.getElementById('filter-btn');
+  if (filterBtn) filterBtn.addEventListener('click', applyFilters);
 
   // Clear filters button
-  document.getElementById('clear-filters-btn').addEventListener('click', resetFilters);
+  const clearFiltersBtn = document.getElementById('clear-filters-btn');
+  if (clearFiltersBtn) clearFiltersBtn.addEventListener('click', resetFilters);
 
   // Event delegation for expense delete buttons
-  document.getElementById('expenses-body').addEventListener('click', async function (e) {
+  const expensesBody = document.getElementById('expenses-body');
+  if (expensesBody) expensesBody.addEventListener('click', async function (e) {
     const btn = e.target.closest('.delete-btn');
     if (btn) {
       const authorized = await requireAdmin();
@@ -609,7 +646,8 @@ document.addEventListener('DOMContentLoaded', async function () {
   });
 
   // Event delegation for income delete buttons
-  document.getElementById('income-body').addEventListener('click', async function (e) {
+  const incomeBody = document.getElementById('income-body');
+  if (incomeBody) incomeBody.addEventListener('click', async function (e) {
     const btn = e.target.closest('.delete-btn');
     if (btn) {
       const authorized = await requireAdmin();

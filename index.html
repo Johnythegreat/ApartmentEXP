@@ -16,6 +16,25 @@
   </header>
 
   <main class="container">
+
+    <!-- Admin Password Section -->
+    <section class="card" id="password-section">
+      <h2>Admin Password</h2>
+      <p class="helper-text">Default password is <strong>admin123</strong>. You can change it here after opening the app.</p>
+      <form id="password-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="current-password">Current Password</label>
+            <input type="password" id="current-password" required>
+          </div>
+          <div class="form-group">
+            <label for="new-password">New Password</label>
+            <input type="password" id="new-password" minlength="4" required>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-secondary">Update Password</button>
+      </form>
+    </section>
     <!-- Add Income Section -->
     <section class="card" id="add-income-section">
       <h2>Add Income</h2>
