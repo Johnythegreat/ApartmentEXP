@@ -47,6 +47,10 @@ function saveIncome(income) {
 /* ===== Chart Instance ===== */
 let chartInstance = null;
 
+/* ===== Admin Mode ===== */
+const ADMIN_PASSWORD = 'admin123';
+let isAdmin = false;
+
 /* ===== Render Functions ===== */
 
 /**
@@ -58,15 +62,20 @@ function renderTable(expenses) {
   const tbody = document.getElementById('expenses-body');
   const emptyState = document.getElementById('empty-state');
 
+  if (!tbody) {
+    console.warn('renderTable: #expenses-body element not found');
+    return;
+  }
+
   if (!expenses.length) {
     tbody.innerHTML = '';
-    emptyState.style.display = 'block';
+    if (emptyState) emptyState.style.display = 'block';
     renderBalance();
     renderIncomeTable();
     return;
   }
 
-  emptyState.style.display = 'none';
+  if (emptyState) emptyState.style.display = 'none';
 
   tbody.innerHTML = expenses
     .map(
@@ -108,6 +117,10 @@ function renderBalance() {
   const balance = totalIncome - totalExpenses;
 
   const balanceEl = document.getElementById('balance-amount');
+  if (!balanceEl) {
+    console.warn('renderBalance: #balance-amount element not found');
+    return;
+  }
   balanceEl.textContent = formatCurrency(Math.abs(balance));
 
   balanceEl.classList.remove('positive', 'negative');
@@ -123,6 +136,10 @@ function renderBalance() {
  */
 function renderIncomeTable() {
   const tbody = document.getElementById('income-body');
+  if (!tbody) {
+    console.warn('renderIncomeTable: #income-body element not found');
+    return;
+  }
   const income = loadIncome();
 
   if (!income.length) {
@@ -278,10 +295,10 @@ function addExpense(expense) {
   const expenses = loadExpenses();
   expenses.push(expense);
   saveExpenses(expenses);
-  renderTable(expenses);
-  renderSummary(expenses);
-  renderBalance();
-  renderIncomeTable();
+  try { renderTable(expenses); } catch (e) { console.warn('addExpense: renderTable failed', e); }
+  try { renderSummary(expenses); } catch (e) { console.warn('addExpense: renderSummary failed', e); }
+  try { renderBalance(); } catch (e) { console.warn('addExpense: renderBalance failed', e); }
+  try { renderIncomeTable(); } catch (e) { console.warn('addExpense: renderIncomeTable failed', e); }
 }
 
 /**
@@ -292,10 +309,10 @@ function deleteExpense(id) {
   let expenses = loadExpenses();
   expenses = expenses.filter((e) => e.id !== id);
   saveExpenses(expenses);
-  renderTable(expenses);
-  renderSummary(expenses);
-  renderBalance();
-  renderIncomeTable();
+  try { renderTable(expenses); } catch (e) { console.warn('deleteExpense: renderTable failed', e); }
+  try { renderSummary(expenses); } catch (e) { console.warn('deleteExpense: renderSummary failed', e); }
+  try { renderBalance(); } catch (e) { console.warn('deleteExpense: renderBalance failed', e); }
+  try { renderIncomeTable(); } catch (e) { console.warn('deleteExpense: renderIncomeTable failed', e); }
 }
 
 /* ===== Income CRUD ===== */
@@ -308,8 +325,8 @@ function addIncome(incomeItem) {
   const income = loadIncome();
   income.push(incomeItem);
   saveIncome(income);
-  renderIncomeTable();
-  renderBalance();
+  try { renderIncomeTable(); } catch (e) { console.warn('addIncome: renderIncomeTable failed', e); }
+  try { renderBalance(); } catch (e) { console.warn('addIncome: renderBalance failed', e); }
 }
 
 /**
@@ -320,8 +337,8 @@ function deleteIncome(id) {
   let income = loadIncome();
   income = income.filter((i) => i.id !== id);
   saveIncome(income);
-  renderIncomeTable();
-  renderBalance();
+  try { renderIncomeTable(); } catch (e) { console.warn('deleteIncome: renderIncomeTable failed', e); }
+  try { renderBalance(); } catch (e) { console.warn('deleteIncome: renderBalance failed', e); }
 }
 
 /* ===== Budget Functions ===== */
@@ -428,9 +445,30 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+/* ===== Admin Authorization ===== */
+
+function requireAdmin() {
+  return new Promise((resolve) => {
+    if (isAdmin) {
+      resolve(true);
+      return;
+    }
+    const password = prompt('Enter admin password to make changes:');
+    if (password === ADMIN_PASSWORD) {
+      isAdmin = true;
+      resolve(true);
+    } else {
+      if (password !== null) {
+        alert('Incorrect password.');
+      }
+      resolve(false);
+    }
+  });
+}
+
 /* ===== Initialization ===== */
 
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', async function () {
   // Set default date to today
   document.getElementById('date').value = new Date().toISOString().split('T')[0];
   document.getElementById('income-date').value = new Date().toISOString().split('T')[0];
@@ -449,7 +487,9 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // Set budget button
-  document.getElementById('set-budget-btn').addEventListener('click', function () {
+  document.getElementById('set-budget-btn').addEventListener('click', async function () {
+    const authorized = await requireAdmin();
+    if (!authorized) return;
     const input = document.getElementById('budget-input');
     const val = parseFloat(input.value);
     if (isNaN(val) || val < 0) {
@@ -461,8 +501,11 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   // Expense form submit handler
-  document.getElementById('expense-form').addEventListener('submit', function (e) {
+  document.getElementById('expense-form').addEventListener('submit', async function (e) {
     e.preventDefault();
+
+    const authorized = await requireAdmin();
+    if (!authorized) return;
 
     const amount = parseFloat(document.getElementById('amount').value);
     const category = document.getElementById('category').value;
@@ -495,8 +538,11 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   // Income form submit handler
-  document.getElementById('income-form').addEventListener('submit', function (e) {
+  document.getElementById('income-form').addEventListener('submit', async function (e) {
     e.preventDefault();
+
+    const authorized = await requireAdmin();
+    if (!authorized) return;
 
     const amount = parseFloat(document.getElementById('income-amount').value);
     const source = document.getElementById('income-source').value;
@@ -533,18 +579,22 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('clear-filters-btn').addEventListener('click', resetFilters);
 
   // Event delegation for expense delete buttons
-  document.getElementById('expenses-body').addEventListener('click', function (e) {
+  document.getElementById('expenses-body').addEventListener('click', async function (e) {
     const btn = e.target.closest('.delete-btn');
     if (btn) {
+      const authorized = await requireAdmin();
+      if (!authorized) return;
       const id = Number(btn.dataset.id);
       deleteExpense(id);
     }
   });
 
   // Event delegation for income delete buttons
-  document.getElementById('income-body').addEventListener('click', function (e) {
+  document.getElementById('income-body').addEventListener('click', async function (e) {
     const btn = e.target.closest('.delete-btn');
     if (btn) {
+      const authorized = await requireAdmin();
+      if (!authorized) return;
       const id = Number(btn.dataset.id);
       deleteIncome(id);
     }
