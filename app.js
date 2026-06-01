@@ -116,12 +116,17 @@ function renderBalance() {
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   const balance = totalIncome - totalExpenses;
 
+  const totalIncomeEl = document.getElementById('total-income-amount');
+  const totalExpenseEl = document.getElementById('total-expense-amount');
+  if (totalIncomeEl) totalIncomeEl.textContent = formatCurrency(totalIncome);
+  if (totalExpenseEl) totalExpenseEl.textContent = formatCurrency(totalExpenses);
+
   const balanceEl = document.getElementById('balance-amount');
   if (!balanceEl) {
     console.warn('renderBalance: #balance-amount element not found');
     return;
   }
-  balanceEl.textContent = formatCurrency(Math.abs(balance));
+  balanceEl.textContent = formatCurrency(balance);
 
   balanceEl.classList.remove('positive', 'negative');
   if (balance > 0) {
@@ -167,7 +172,9 @@ function renderIncomeTable() {
  * @param {Array} expenses
  */
 function renderChart(expenses) {
-  const ctx = document.getElementById('chart').getContext('2d');
+  const chartEl = document.getElementById('chart');
+  if (!chartEl || typeof Chart === 'undefined') return;
+  const ctx = chartEl.getContext('2d');
 
   // Destroy previous chart
   if (chartInstance) {
@@ -298,6 +305,7 @@ function addExpense(expense) {
   try { renderTable(expenses); } catch (e) { console.warn('addExpense: renderTable failed', e); }
   try { renderSummary(expenses); } catch (e) { console.warn('addExpense: renderSummary failed', e); }
   try { renderBalance(); } catch (e) { console.warn('addExpense: renderBalance failed', e); }
+  try { renderBudget(loadExpenses()); } catch (e) { console.warn('addExpense: renderBudget failed', e); }
   try { renderIncomeTable(); } catch (e) { console.warn('addExpense: renderIncomeTable failed', e); }
 }
 
@@ -312,6 +320,7 @@ function deleteExpense(id) {
   try { renderTable(expenses); } catch (e) { console.warn('deleteExpense: renderTable failed', e); }
   try { renderSummary(expenses); } catch (e) { console.warn('deleteExpense: renderSummary failed', e); }
   try { renderBalance(); } catch (e) { console.warn('deleteExpense: renderBalance failed', e); }
+  try { renderBudget(loadExpenses()); } catch (e) { console.warn('deleteExpense: renderBudget failed', e); }
   try { renderIncomeTable(); } catch (e) { console.warn('deleteExpense: renderIncomeTable failed', e); }
 }
 
@@ -327,6 +336,7 @@ function addIncome(incomeItem) {
   saveIncome(income);
   try { renderIncomeTable(); } catch (e) { console.warn('addIncome: renderIncomeTable failed', e); }
   try { renderBalance(); } catch (e) { console.warn('addIncome: renderBalance failed', e); }
+  try { renderSummary(loadExpenses()); } catch (e) { console.warn('addIncome: renderSummary failed', e); }
 }
 
 /**
@@ -339,6 +349,7 @@ function deleteIncome(id) {
   saveIncome(income);
   try { renderIncomeTable(); } catch (e) { console.warn('deleteIncome: renderIncomeTable failed', e); }
   try { renderBalance(); } catch (e) { console.warn('deleteIncome: renderBalance failed', e); }
+  try { renderSummary(loadExpenses()); } catch (e) { console.warn('deleteIncome: renderSummary failed', e); }
 }
 
 /* ===== Budget Functions ===== */
@@ -371,6 +382,7 @@ function saveBudget(amount) {
  */
 function renderBudget(allExpenses) {
   const display = document.getElementById('budget-display');
+  if (!display) return;
   const budget = loadBudget();
 
   if (budget === null || budget <= 0) {
@@ -470,8 +482,11 @@ function requireAdmin() {
 
 document.addEventListener('DOMContentLoaded', async function () {
   // Set default date to today
-  document.getElementById('date').value = new Date().toISOString().split('T')[0];
-  document.getElementById('income-date').value = new Date().toISOString().split('T')[0];
+  const today = new Date().toISOString().split('T')[0];
+  const expenseDate = document.getElementById('date');
+  const incomeDate = document.getElementById('income-date');
+  if (expenseDate) expenseDate.value = today;
+  if (incomeDate) incomeDate.value = today;
 
   // Initial render
   const expenses = loadExpenses();
@@ -480,25 +495,29 @@ document.addEventListener('DOMContentLoaded', async function () {
   renderBalance();
   renderIncomeTable();
 
-  // Load saved budget into input
+  // Load saved budget into input, only if the optional budget UI exists
   const savedBudget = loadBudget();
-  if (savedBudget !== null && savedBudget > 0) {
-    document.getElementById('budget-input').value = savedBudget;
+  const budgetInput = document.getElementById('budget-input');
+  if (budgetInput && savedBudget !== null && savedBudget > 0) {
+    budgetInput.value = savedBudget;
   }
+  renderBudget(expenses);
 
-  // Set budget button
-  document.getElementById('set-budget-btn').addEventListener('click', async function () {
-    const authorized = await requireAdmin();
-    if (!authorized) return;
-    const input = document.getElementById('budget-input');
-    const val = parseFloat(input.value);
-    if (isNaN(val) || val < 0) {
-      alert('Please enter a valid budget amount (0 or more).');
-      return;
-    }
-    saveBudget(val);
-    renderBudget(loadExpenses());
-  });
+  // Set budget button, only if the optional budget UI exists
+  const setBudgetBtn = document.getElementById('set-budget-btn');
+  if (setBudgetBtn && budgetInput) {
+    setBudgetBtn.addEventListener('click', async function () {
+      const authorized = await requireAdmin();
+      if (!authorized) return;
+      const val = parseFloat(budgetInput.value);
+      if (isNaN(val) || val < 0) {
+        alert('Please enter a valid budget amount (0 or more).');
+        return;
+      }
+      saveBudget(val);
+      renderBudget(loadExpenses());
+    });
+  }
 
   // Expense form submit handler
   document.getElementById('expense-form').addEventListener('submit', async function (e) {

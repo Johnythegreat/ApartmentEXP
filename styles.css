@@ -487,3 +487,19 @@ header h1 {
   padding-top: 20px;
   border-top: 2px solid #e2e8f0;
 }
+
+
+/* Balance breakdown */
+.balance-breakdown {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.balance-breakdown strong {
+  color: #fff;
+}
