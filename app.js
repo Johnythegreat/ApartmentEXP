@@ -44,6 +44,60 @@ function saveIncome(income) {
   localStorage.setItem('income-tracker-income', JSON.stringify(income));
 }
 
+
+/* ===== Member Amotan Data ===== */
+const MEMBER_AMOUNT = 700;
+const MEMBERS_KEY = 'apartment-budget-members';
+
+function loadMembers() {
+  try {
+    const data = localStorage.getItem(MEMBERS_KEY);
+    if (data) return JSON.parse(data);
+  } catch {}
+  const defaultMembers = [
+    { id: 1, name: 'Member 1', paid: false },
+    { id: 2, name: 'Member 2', paid: false },
+    { id: 3, name: 'Member 3', paid: false },
+    { id: 4, name: 'Member 4', paid: false },
+  ];
+  saveMembers(defaultMembers);
+  return defaultMembers;
+}
+
+function saveMembers(members) {
+  localStorage.setItem(MEMBERS_KEY, JSON.stringify(members));
+}
+
+function getPaidMemberTotal() {
+  return loadMembers().reduce((sum, member) => sum + (member.paid ? MEMBER_AMOUNT : 0), 0);
+}
+
+function getUnpaidMemberTotal() {
+  return loadMembers().reduce((sum, member) => sum + (!member.paid ? MEMBER_AMOUNT : 0), 0);
+}
+
+function addMember(name) {
+  const members = loadMembers();
+  members.push({ id: Date.now(), name, paid: false });
+  saveMembers(members);
+  renderMembers();
+  renderBalance();
+}
+
+function deleteMember(id) {
+  const members = loadMembers().filter((member) => member.id !== id);
+  saveMembers(members);
+  renderMembers();
+  renderBalance();
+}
+
+function toggleMemberPaid(id, paid) {
+  const members = loadMembers().map((member) => member.id === id ? { ...member, paid } : member);
+  saveMembers(members);
+  renderMembers();
+  renderBalance();
+}
+
 /* ===== Chart Instance ===== */
 let chartInstance = null;
 
@@ -137,8 +191,11 @@ function renderBalance() {
   const income = loadIncome();
 
   const totalIncome = income.reduce((sum, i) => sum + i.amount, 0);
-  const paidIncome = income.reduce((sum, i) => sum + (i.paid ? i.amount : 0), 0);
-  const unpaidIncome = totalIncome - paidIncome;
+  const paidManualIncome = income.reduce((sum, i) => sum + (i.paid ? i.amount : 0), 0);
+  const paidMemberTotal = getPaidMemberTotal();
+  const unpaidMemberTotal = getUnpaidMemberTotal();
+  const paidIncome = paidManualIncome + paidMemberTotal;
+  const unpaidIncome = (totalIncome - paidManualIncome) + unpaidMemberTotal;
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   const balance = paidIncome - totalExpenses;
 
@@ -197,6 +254,41 @@ function renderIncomeTable() {
       </tr>`
     )
     .join('');
+}
+
+
+
+/**
+ * Render member checklist. Every checked member adds ₱700 to Money In.
+ */
+function renderMembers() {
+  const list = document.getElementById('member-list');
+  const countEl = document.getElementById('paid-member-count');
+  const totalEl = document.getElementById('member-paid-total');
+  if (!list) return;
+
+  const members = loadMembers();
+  const paidCount = members.filter((member) => member.paid).length;
+  const paidTotal = paidCount * MEMBER_AMOUNT;
+
+  if (countEl) countEl.textContent = `${paidCount}/${members.length} paid`;
+  if (totalEl) totalEl.textContent = formatCurrency(paidTotal);
+
+  if (!members.length) {
+    list.innerHTML = '<p class="empty-state">No members yet. Add one below.</p>';
+    return;
+  }
+
+  list.innerHTML = members.map((member) => `
+    <div class="member-item ${member.paid ? 'is-paid' : ''}">
+      <label class="member-check">
+        <input type="checkbox" class="member-paid-toggle" data-id="${member.id}" ${member.paid ? 'checked' : ''}>
+        <span class="member-name">${escapeHtml(member.name)}</span>
+      </label>
+      <span class="member-amount">${formatCurrency(MEMBER_AMOUNT)}</span>
+      <button type="button" class="member-delete" data-id="${member.id}" title="Delete member">✕</button>
+    </div>
+  `).join('');
 }
 
 /**
@@ -489,7 +581,7 @@ function daysBetween(dateA, dateB) {
 function getCurrentBalance() {
   const expenses = loadExpenses();
   const income = loadIncome();
-  const paidIncome = income.reduce((sum, i) => sum + (i.paid ? i.amount : 0), 0);
+  const paidIncome = income.reduce((sum, i) => sum + (i.paid ? i.amount : 0), 0) + getPaidMemberTotal();
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   return paidIncome - totalExpenses;
 }
@@ -529,12 +621,14 @@ function resetCycleWithCarryover(showAlert = true) {
   }
 
   saveIncome(nextIncome);
+  saveMembers(loadMembers().map((member) => ({ ...member, paid: false })));
   localStorage.setItem(CYCLE_START_KEY, getTodayString());
 
   renderTable(loadExpenses());
   renderSummary(loadExpenses());
   renderBalance();
   renderIncomeTable();
+  renderMembers();
   renderCycleStatus();
 
   if (showAlert) {
@@ -631,6 +725,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   renderSummary(expenses);
   renderBalance();
   renderIncomeTable();
+  renderMembers();
 
   // Load saved budget into input, only if the optional budget UI exists
   const savedBudget = loadBudget();
@@ -744,6 +839,44 @@ document.addEventListener('DOMContentLoaded', async function () {
     addIncome(incomeItem);
     this.reset();
     document.getElementById('income-date').value = new Date().toISOString().split('T')[0];
+  });
+
+
+  const memberForm = document.getElementById('member-form');
+  if (memberForm) memberForm.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const authorized = await requireAdmin();
+    if (!authorized) return;
+    const input = document.getElementById('member-name');
+    const name = input.value.trim();
+    if (!name) {
+      alert('Please enter a member name.');
+      return;
+    }
+    addMember(name);
+    memberForm.reset();
+  });
+
+  const memberList = document.getElementById('member-list');
+  if (memberList) memberList.addEventListener('click', async function (e) {
+    const toggle = e.target.closest('.member-paid-toggle');
+    if (toggle) {
+      const authorized = await requireAdmin();
+      if (!authorized) {
+        toggle.checked = !toggle.checked;
+        return;
+      }
+      toggleMemberPaid(Number(toggle.dataset.id), toggle.checked);
+      return;
+    }
+
+    const deleteBtn = e.target.closest('.member-delete');
+    if (deleteBtn) {
+      const authorized = await requireAdmin();
+      if (!authorized) return;
+      if (!confirm('Delete this member from the amotan list?')) return;
+      deleteMember(Number(deleteBtn.dataset.id));
+    }
   });
 
   // Filter button

@@ -59,3 +59,126 @@
 .btn-danger:hover {
   background: #7f1d1d;
 }
+
+
+/* Member Amotan Checklist */
+.member-panel {
+  padding: 20px 22px;
+}
+
+.member-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.member-summary div {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+
+.member-summary span {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9a5b25;
+  font-weight: 900;
+}
+
+.member-summary strong {
+  display: block;
+  font-size: 1.2rem;
+  color: #3a2618;
+  margin-top: 2px;
+}
+
+.member-list {
+  display: grid;
+  gap: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-bottom: 16px;
+}
+
+.member-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid #f1d8bc;
+  background: #fffdf9;
+}
+
+.member-item.is-paid {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.member-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 900;
+  color: #3a2618;
+  cursor: pointer;
+}
+
+.member-check input {
+  width: 22px;
+  height: 22px;
+  accent-color: #22c55e;
+  cursor: pointer;
+}
+
+.member-amount {
+  font-weight: 950;
+  color: #15803d;
+  white-space: nowrap;
+}
+
+.member-delete {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 10px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.member-delete:hover {
+  background: #fecaca;
+}
+
+.member-form {
+  padding: 0 !important;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.member-form .form-group {
+  margin: 0;
+}
+
+.helper-note {
+  margin-top: 12px;
+  color: #7c4a27;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+@media(max-width:640px){
+  .member-summary { grid-template-columns: 1fr; }
+  .member-item { grid-template-columns: 1fr auto; }
+  .member-delete { grid-column: 1 / -1; width: 100%; }
+}

@@ -54,8 +54,29 @@
       </div>
     </section>
 
-    <details class="card accordion" id="add-income-section" open>
-      <summary><span>➕ Add Income</span><small>salary, side hustle, share</small></summary>
+
+
+    <details class="card accordion" id="member-section" open>
+      <summary><span>👥 Members Amotan</span><small>₱700 per checked member</small></summary>
+      <div class="member-panel">
+        <div class="member-summary">
+          <div><span>Paid Members</span><strong id="paid-member-count">0/0 paid</strong></div>
+          <div><span>Member Total</span><strong id="member-paid-total">₱0.00</strong></div>
+        </div>
+        <div id="member-list" class="member-list"></div>
+        <form id="member-form" class="member-form">
+          <div class="form-group">
+            <label for="member-name">Add Member Name</label>
+            <input type="text" id="member-name" placeholder="e.g. John, Mark, Room 1" required>
+          </div>
+          <button type="submit" class="btn btn-secondary">Add Member</button>
+        </form>
+        <p class="helper-note">Check a member only when they paid the ₱700 amotan. This will automatically add to remaining balance.</p>
+      </div>
+    </details>
+
+    <details class="card accordion" id="add-income-section">
+      <summary><span>➕ Manual Money In</span><small>keep this for extra/manual income</small></summary>
       <form id="income-form">
         <div class="form-row">
           <div class="form-group">
@@ -161,7 +182,7 @@
     </details>
 
     <section class="card table-card" id="income-table-section">
-      <div class="section-title-row"><div><p class="section-kicker">Money In</p><h2>Income Log</h2><small>Check the box only when the person already paid.</small></div></div>
+      <div class="section-title-row"><div><p class="section-kicker">Manual Money In</p><h2>Income Log</h2><small>Optional manual income. Members amotan is tracked above.</small></div></div>
       <div class="table-wrapper scroll-area"><table id="income-table"><thead><tr><th>Date</th><th>Source</th><th>Description</th><th>Amount</th><th>Paid?</th><th>Action</th></tr></thead><tbody id="income-body"></tbody></table></div>
     </section>
 
