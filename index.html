@@ -5,97 +5,107 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Apartment Amotan Tracker</title>
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="app.js" defer></script>
 </head>
 <body>
   <header class="hero">
-    <div class="container hero-inner">
-      <div>
-        <p class="eyebrow">Apartment Dinner Budget</p>
-        <h1>Amotan Tracker</h1>
-        <p class="subtext">Track member ₱700 payments, money in, expenses, and sobra carryover.</p>
-      </div>
-      <div class="status-card">
-        <span id="cloud-status" class="status-dot local">Starting...</span>
-        <small>Default password: <strong>Master</strong></small>
-      </div>
+    <div>
+      <p class="eyebrow">Apartment Dinner Budget</p>
+      <h1>Amotan Tracker</h1>
+      <p class="subtitle">Track members, dinner expenses, money in, and sobra carryover.</p>
+    </div>
+    <div class="hero-actions">
+      <span id="sync-status" class="status offline">Starting...</span>
+      <button id="lock-btn" class="ghost-btn" type="button">Lock</button>
     </div>
   </header>
 
-  <main class="container app-grid">
-    <section class="card balance-card">
-      <div class="balance-top">
-        <div>
-          <p class="eyebrow">Current Remaining</p>
-          <h2 id="balance-amount">₱0.00</h2>
-        </div>
-        <button id="reset-cycle-btn" class="btn danger">Reset 15-Day Cycle</button>
-      </div>
-      <div class="mini-stats">
-        <div><span>Carryover / Sobra</span><strong id="carryover-amount">₱0.00</strong></div>
-        <div><span>Member Amotan</span><strong id="member-total">₱0.00</strong></div>
-        <div><span>Money In</span><strong id="income-total">₱0.00</strong></div>
-        <div><span>Expenses</span><strong id="expense-total">₱0.00</strong></div>
-      </div>
-      <p class="cycle-text" id="cycle-text">Cycle loading...</p>
+  <main class="app-shell">
+    <section class="dashboard-grid">
+      <article class="stat-card warm">
+        <span>Remaining Balance</span>
+        <strong id="balance-amount">₱0.00</strong>
+        <small>Paid amotan + money in + carryover - expenses</small>
+      </article>
+      <article class="stat-card">
+        <span>Paid Members</span>
+        <strong id="paid-members-count">0</strong>
+        <small>₱700 per checked member</small>
+      </article>
+      <article class="stat-card">
+        <span>Cycle Carryover / Sobra</span>
+        <strong id="carryover-amount">₱0.00</strong>
+        <small>Will move to next 15-day cycle</small>
+      </article>
+      <article class="stat-card">
+        <span>Cycle Started</span>
+        <strong id="cycle-start-label">Today</strong>
+        <small id="cycle-days-left">15 days left</small>
+      </article>
     </section>
 
-    <details class="card" open>
-      <summary>Members Amotan Checklist <span>₱700 per checked member</span></summary>
-      <div class="section-body">
+    <details class="panel" open>
+      <summary>Members Amotan Checklist — ₱700 each</summary>
+      <div class="panel-body">
         <form id="member-form" class="inline-form">
           <input id="member-name" type="text" placeholder="Member name" required />
-          <button class="btn primary" type="submit">Add Member</button>
+          <button class="primary-btn" type="submit">Add Member</button>
         </form>
-        <div id="members-list" class="scroll-box checklist"></div>
+        <div id="members-list" class="member-list"></div>
       </div>
     </details>
 
-    <details class="card">
-      <summary>Money In <span>Manual extra income</span></summary>
-      <div class="section-body">
-        <form id="income-form" class="form-grid">
-          <input id="income-amount" type="number" min="0.01" step="0.01" placeholder="Amount ₱" required />
-          <input id="income-source" type="text" placeholder="Source" required />
+    <details class="panel" open>
+      <summary>Money In</summary>
+      <div class="panel-body">
+        <form id="money-in-form" class="grid-form">
+          <input id="income-amount" type="number" min="0.01" step="0.01" placeholder="Amount" required />
+          <input id="income-desc" type="text" placeholder="Description / source" required />
           <input id="income-date" type="date" required />
-          <input id="income-description" type="text" placeholder="Description" required />
-          <button class="btn success" type="submit">Add Money In</button>
+          <button class="success-btn" type="submit">Add Money In</button>
         </form>
-        <div id="income-list" class="scroll-box table-list"></div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+            <tbody id="income-body"></tbody>
+          </table>
+        </div>
       </div>
     </details>
 
-    <details class="card">
-      <summary>Expenses <span>Dinner, apartment needs, bills</span></summary>
-      <div class="section-body">
-        <form id="expense-form" class="form-grid">
-          <input id="expense-amount" type="number" min="0.01" step="0.01" placeholder="Amount ₱" required />
-          <select id="expense-category" required>
-            <option value="Dinner">Dinner</option>
-            <option value="Groceries">Groceries</option>
-            <option value="Utilities">Utilities</option>
-            <option value="Apartment">Apartment</option>
-            <option value="Other">Other</option>
-          </select>
+    <details class="panel" open>
+      <summary>Expenses / Money Out</summary>
+      <div class="panel-body">
+        <form id="expense-form" class="grid-form">
+          <input id="expense-amount" type="number" min="0.01" step="0.01" placeholder="Amount" required />
+          <input id="expense-desc" type="text" placeholder="Description" required />
           <input id="expense-date" type="date" required />
-          <input id="expense-description" type="text" placeholder="Description" required />
-          <button class="btn primary" type="submit">Add Expense</button>
+          <button class="danger-btn" type="submit">Add Expense</button>
         </form>
-        <div id="expense-list" class="scroll-box table-list"></div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+            <tbody id="expense-body"></tbody>
+          </table>
+        </div>
       </div>
     </details>
 
-    <details class="card">
-      <summary>Admin & Backup <span>Save, restore, reset</span></summary>
-      <div class="section-body admin-actions">
-        <button id="save-now-btn" class="btn primary">Save Now</button>
-        <button id="export-btn" class="btn neutral">Export Backup</button>
-        <label class="file-label">Import Backup<input id="import-file" type="file" accept="application/json" /></label>
-        <button id="wipe-btn" class="btn danger">Wipe Everything</button>
-        <p class="note">Changes auto-save locally and to Firebase when Firestore is enabled.</p>
+    <details class="panel">
+      <summary>Admin / Cycle Controls</summary>
+      <div class="panel-body controls">
+        <button id="reset-cycle-btn" class="warning-btn" type="button">Start New 15-Day Cycle, Keep Sobra</button>
+        <button id="reset-all-btn" class="danger-outline-btn" type="button">Reset Everything</button>
+        <p class="hint">Password is asked once per browser tab/session. Current password: <strong>Master</strong>.</p>
       </div>
     </details>
   </main>
 
-  <script type="module" src="app.js"></script>
+  <footer>
+    Built for apartment amotan tracking. Data syncs online when Firestore is enabled.
+  </footer>
 </body>
 </html>
