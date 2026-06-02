@@ -3,154 +3,99 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Apartment Dinner Budget</title>
+  <title>Apartment Amotan Tracker</title>
   <link rel="stylesheet" href="styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js" defer></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js" defer></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js" defer></script>
-  <script src="firebase-config.js" defer></script>
-  <script src="app.js" defer></script>
 </head>
 <body>
   <header class="hero">
-    <div class="container hero-content">
+    <div class="container hero-inner">
       <div>
-        <p class="eyebrow">Apartment Budgeting • Dinner Amotan</p>
-        <h1>Apartment Dinner Budget</h1>
-        <p class="hero-subtitle">Track members, ₱700 amotan, money in, expenses, and sobra carryover.</p>
+        <p class="eyebrow">Apartment Dinner Budget</p>
+        <h1>Amotan Tracker</h1>
+        <p class="subtext">Track member ₱700 payments, money in, expenses, and sobra carryover.</p>
       </div>
-      <div class="status-pill" id="sync-status">Local save</div>
+      <div class="status-card">
+        <span id="cloud-status" class="status-dot local">Starting...</span>
+        <small>Default password: <strong>Master</strong></small>
+      </div>
     </div>
   </header>
 
-  <main class="container app-layout">
+  <main class="container app-grid">
     <section class="card balance-card">
-      <div class="section-title-row">
+      <div class="balance-top">
         <div>
-          <p class="section-kicker">Overview</p>
-          <h2>Remaining Balance</h2>
+          <p class="eyebrow">Current Remaining</p>
+          <h2 id="balance-amount">₱0.00</h2>
         </div>
+        <button id="reset-cycle-btn" class="btn danger">Reset 15-Day Cycle</button>
       </div>
-      <div class="balance-display">
-        <span class="balance-amount" id="balance-amount">₱0.00</span>
-        <div class="balance-breakdown">
-          <span>Paid In: <strong id="paid-in">₱0.00</strong></span>
-          <span>Unpaid Amotan: <strong id="unpaid-amount">₱0.00</strong></span>
-          <span>Expenses: <strong id="spent-amount">₱0.00</strong></span>
-          <span>Sobra Carryover: <strong id="carryover-amount">₱0.00</strong></span>
-        </div>
-        <p class="cycle-status" id="cycle-status">15-day cycle loading...</p>
+      <div class="mini-stats">
+        <div><span>Carryover / Sobra</span><strong id="carryover-amount">₱0.00</strong></div>
+        <div><span>Member Amotan</span><strong id="member-total">₱0.00</strong></div>
+        <div><span>Money In</span><strong id="income-total">₱0.00</strong></div>
+        <div><span>Expenses</span><strong id="expense-total">₱0.00</strong></div>
       </div>
+      <p class="cycle-text" id="cycle-text">Cycle loading...</p>
     </section>
 
-    <section class="card" id="summary-section">
-      <div class="section-title-row">
-        <div>
-          <p class="section-kicker">Spending</p>
-          <h2>Dinner & Apartment Summary</h2>
-        </div>
-        <div class="summary-total">
-          <span class="total-label">Total Spent</span>
-          <span class="total-amount" id="total-amount">₱0.00</span>
-        </div>
+    <details class="card" open>
+      <summary>Members Amotan Checklist <span>₱700 per checked member</span></summary>
+      <div class="section-body">
+        <form id="member-form" class="inline-form">
+          <input id="member-name" type="text" placeholder="Member name" required />
+          <button class="btn primary" type="submit">Add Member</button>
+        </form>
+        <div id="members-list" class="scroll-box checklist"></div>
       </div>
-      <div class="chart-wrapper"><canvas id="chart"></canvas></div>
-    </section>
+    </details>
 
-    <details class="card accordion" open>
-      <summary><span>👥 Members Amotan</span><small>₱700 per checked member</small></summary>
-      <div class="member-summary">
-        <div><span>Paid Members</span><strong id="paid-member-count">0/0 paid</strong></div>
-        <div><span>Member Total</span><strong id="member-paid-total">₱0.00</strong></div>
+    <details class="card">
+      <summary>Money In <span>Manual extra income</span></summary>
+      <div class="section-body">
+        <form id="income-form" class="form-grid">
+          <input id="income-amount" type="number" min="0.01" step="0.01" placeholder="Amount ₱" required />
+          <input id="income-source" type="text" placeholder="Source" required />
+          <input id="income-date" type="date" required />
+          <input id="income-description" type="text" placeholder="Description" required />
+          <button class="btn success" type="submit">Add Money In</button>
+        </form>
+        <div id="income-list" class="scroll-box table-list"></div>
       </div>
-      <div id="member-list" class="member-list"></div>
-      <form id="member-form" class="member-form">
-        <div class="form-group">
-          <label for="member-name">Add Member Name</label>
-          <input type="text" id="member-name" placeholder="e.g. John, Room 1" required />
-        </div>
-        <button class="btn btn-secondary" type="submit">Add Member</button>
-      </form>
-      <p class="helper-note">Check a member only when they paid the ₱700 amotan. This automatically adds to remaining balance.</p>
     </details>
 
-    <details class="card accordion">
-      <summary><span>➕ Manual Money In</span><small>extra/manual income</small></summary>
-      <form id="income-form">
-        <div class="form-row">
-          <div class="form-group"><label for="income-amount">Amount (₱)</label><input type="number" id="income-amount" min="0.01" step="0.01" required /></div>
-          <div class="form-group">
-            <label for="income-source">Source</label>
-            <select id="income-source" required>
-              <option value="Carryover">Carryover / Sobra</option>
-              <option value="Apartment Share">Apartment Share</option>
-              <option value="Dinner Contribution">Dinner Contribution</option>
-              <option value="Extra Money">Extra Money</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label for="income-description">Description</label><input type="text" id="income-description" placeholder="e.g. extra rice fund" required /></div>
-          <div class="form-group"><label for="income-date">Date</label><input type="date" id="income-date" required /></div>
-          <label class="paid-toggle"><input type="checkbox" id="income-paid" checked /> Already paid</label>
-        </div>
-        <button class="btn btn-success" type="submit">Add Income</button>
-      </form>
+    <details class="card">
+      <summary>Expenses <span>Dinner, apartment needs, bills</span></summary>
+      <div class="section-body">
+        <form id="expense-form" class="form-grid">
+          <input id="expense-amount" type="number" min="0.01" step="0.01" placeholder="Amount ₱" required />
+          <select id="expense-category" required>
+            <option value="Dinner">Dinner</option>
+            <option value="Groceries">Groceries</option>
+            <option value="Utilities">Utilities</option>
+            <option value="Apartment">Apartment</option>
+            <option value="Other">Other</option>
+          </select>
+          <input id="expense-date" type="date" required />
+          <input id="expense-description" type="text" placeholder="Description" required />
+          <button class="btn primary" type="submit">Add Expense</button>
+        </form>
+        <div id="expense-list" class="scroll-box table-list"></div>
+      </div>
     </details>
 
-    <details class="card accordion">
-      <summary><span>🧾 Add Expense</span><small>groceries, rent, utilities, dinner</small></summary>
-      <form id="expense-form">
-        <div class="form-row">
-          <div class="form-group"><label for="expense-amount">Amount (₱)</label><input type="number" id="expense-amount" min="0.01" step="0.01" required /></div>
-          <div class="form-group">
-            <label for="expense-category">Category</label>
-            <select id="expense-category" required>
-              <option value="Food">Dinner / Food</option>
-              <option value="Bills">Apartment Bills</option>
-              <option value="Transport">Transport</option>
-              <option value="Supplies">Home Supplies</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label for="expense-description">Description</label><input type="text" id="expense-description" placeholder="e.g. dinner ingredients" required /></div>
-          <div class="form-group"><label for="expense-date">Date</label><input type="date" id="expense-date" required /></div>
-        </div>
-        <button class="btn btn-primary" type="submit">Add Expense</button>
-      </form>
+    <details class="card">
+      <summary>Admin & Backup <span>Save, restore, reset</span></summary>
+      <div class="section-body admin-actions">
+        <button id="save-now-btn" class="btn primary">Save Now</button>
+        <button id="export-btn" class="btn neutral">Export Backup</button>
+        <label class="file-label">Import Backup<input id="import-file" type="file" accept="application/json" /></label>
+        <button id="wipe-btn" class="btn danger">Wipe Everything</button>
+        <p class="note">Changes auto-save locally and to Firebase when Firestore is enabled.</p>
+      </div>
     </details>
-
-    <details class="card accordion compact-admin">
-      <summary><span>🔄 15-Day Reset</span><small>sobra carries over</small></summary>
-      <p class="helper-text">Reset clears members paid status, manual logs, and expenses. Positive remaining balance becomes carryover for the next cycle.</p>
-      <button type="button" class="btn btn-danger" id="reset-cycle-btn">Reset Cycle Now</button>
-    </details>
-
-    <details class="card accordion compact-admin">
-      <summary><span>🔐 Admin Settings</span><small>default password: Master</small></summary>
-      <p class="helper-text">Admin password protects add/delete/reset actions. Default password is <strong>Master</strong>.</p>
-      <form id="password-form">
-        <div class="form-row">
-          <div class="form-group"><label for="current-password">Current Password</label><input type="password" id="current-password" required /></div>
-          <div class="form-group"><label for="new-password">New Password</label><input type="password" id="new-password" minlength="4" required /></div>
-        </div>
-        <button type="submit" class="btn btn-secondary">Update Password</button>
-      </form>
-    </details>
-
-    <section class="card table-card">
-      <div class="section-title-row"><div><p class="section-kicker">Manual Money In</p><h2>Income Log</h2></div></div>
-      <div class="table-wrapper scroll-area"><table><thead><tr><th>Date</th><th>Source</th><th>Description</th><th>Amount</th><th>Paid?</th><th>Action</th></tr></thead><tbody id="income-body"></tbody></table></div>
-    </section>
-
-    <section class="card table-card">
-      <div class="section-title-row"><div><p class="section-kicker">Money Out</p><h2>Expense Log</h2></div></div>
-      <div class="table-wrapper scroll-area"><table><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Action</th></tr></thead><tbody id="expense-body"></tbody></table></div>
-    </section>
   </main>
+
+  <script type="module" src="app.js"></script>
 </body>
 </html>

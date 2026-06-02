@@ -1,22 +1,25 @@
-APARTMENT DINNER BUDGET - CLOUD SYNC VERSION
+Apartment Amotan Tracker - Debugged Firebase Realtime Version
 
 Default admin password: Master
+Member checklist amount: ₱700 per checked member
+Firestore document used: budgetApp/apartmentAmotanMain
 
-This app now works two ways:
-1. Without Firebase config: saves locally only on the same phone/browser.
-2. With Firebase config: syncs between phone, laptop, and other browsers.
+Upload these files to GitHub Pages / Netlify:
+- index.html
+- styles.css
+- app.js
+- firestore.rules is only for Firebase console, not the website
 
-HOW TO ENABLE PHONE + LAPTOP SYNC:
-1. Create/open your Firebase project.
-2. Enable Authentication > Sign-in method > Anonymous.
-3. Enable Firestore Database.
-4. Copy your Firebase Web App config.
-5. Open firebase-config.js and replace the placeholder values.
-6. In Firebase Firestore Rules, paste firestore.rules and publish.
-7. Upload index.html, app.js, styles.css, firebase-config.js to Netlify/GitHub Pages.
+IMPORTANT FIREBASE SETUP:
+1. Open Firebase Console > tee-shirt-2 project.
+2. Go to Firestore Database.
+3. Create database if not yet created.
+4. Go to Rules.
+5. Paste contents of firestore.rules.
+6. Click Publish.
+7. Open your site on phone and laptop. Hard refresh if needed.
 
-Important:
-- Same APARTMENT_ROOM_ID = same shared apartment budget.
-- Change APARTMENT_ROOM_ID if you want a different apartment/group.
-- Positive remaining balance/sobra carries over during reset.
-- Member checkbox adds ₱700 per paid member.
+If it still does not sync:
+- Open browser console and check for Firestore permission errors.
+- Make sure Firestore Database exists, not only Realtime Database.
+- Make sure GitHub Pages uploaded the newest app.js.

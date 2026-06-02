@@ -1,331 +1,246 @@
-const MEMBER_AMOUNT = 700;
-const LOCAL_KEY = 'apartment-budget-cloud-v1';
-const DEFAULT_PASSWORD = 'Master';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+import { getFirestore, doc, onSnapshot, setDoc, getDoc, enableIndexedDbPersistence } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 
-let state = defaultState();
+const firebaseConfig = {
+  apiKey: "AIzaSyDYE1h4hmU8ppSa18Jz-veC6GADBgsIa3g",
+  authDomain: "tee-shirt-2.firebaseapp.com",
+  projectId: "tee-shirt-2",
+  storageBucket: "tee-shirt-2.firebasestorage.app",
+  messagingSenderId: "795409975965",
+  appId: "1:795409975965:web:679a7672811d748677e274",
+  measurementId: "G-QY4MJ62VFZ"
+};
+
+const ADMIN_PASSWORD = 'Master';
+const MEMBER_AMOUNT = 700;
+const CYCLE_DAYS = 15;
+const LOCAL_KEY = 'apartment-amotan-realtime-state-v3';
+
 let db = null;
-let docRef = null;
-let unsubscribeCloud = null;
+let cloudRef = null;
 let cloudReady = false;
 let applyingRemote = false;
-let chart = null;
-let isAdmin = false;
+let saveTimer = null;
 
-function defaultState() {
-  const today = todayStr();
+const today = () => new Date().toISOString().slice(0, 10);
+const peso = n => '₱' + Number(n || 0).toFixed(2);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+const defaultState = () => ({
+  cycleStart: today(),
+  carryover: 0,
+  members: [
+    { id: uid(), name: 'Member 1', paid: false },
+    { id: uid(), name: 'Member 2', paid: false },
+    { id: uid(), name: 'Member 3', paid: false }
+  ],
+  income: [],
+  expenses: [],
+  updatedAt: Date.now()
+});
+
+let state = loadLocal() || defaultState();
+
+function cleanState(raw){
+  const base = defaultState();
+  const s = raw && typeof raw === 'object' ? raw : {};
   return {
-    adminPassword: DEFAULT_PASSWORD,
-    cycleStart: today,
-    carryover: 0,
-    members: [
-      { id: uid(), name: 'Member 1', paid: false },
-      { id: uid(), name: 'Member 2', paid: false },
-      { id: uid(), name: 'Member 3', paid: false },
-      { id: uid(), name: 'Member 4', paid: false }
-    ],
+    cycleStart: s.cycleStart || base.cycleStart,
+    carryover: Number(s.carryover || 0),
+    members: Array.isArray(s.members) ? s.members.map(m => ({ id: m.id || uid(), name: String(m.name || 'Member'), paid: !!m.paid })) : base.members,
+    income: Array.isArray(s.income) ? s.income.map(i => ({ id: i.id || uid(), amount: Number(i.amount || 0), source: String(i.source || ''), description: String(i.description || ''), date: i.date || today() })) : [],
+    expenses: Array.isArray(s.expenses) ? s.expenses.map(e => ({ id: e.id || uid(), amount: Number(e.amount || 0), category: String(e.category || 'Other'), description: String(e.description || ''), date: e.date || today() })) : [],
+    updatedAt: Number(s.updatedAt || Date.now())
+  };
+}
+
+function loadLocal(){
+  try { return cleanState(JSON.parse(localStorage.getItem(LOCAL_KEY))); } catch { return null; }
+}
+function saveLocal(){ localStorage.setItem(LOCAL_KEY, JSON.stringify(state)); }
+function requireAdmin(){
+  const pass = prompt('Enter admin password:');
+  if (pass === ADMIN_PASSWORD) return true;
+  if (pass !== null) alert('Incorrect password.');
+  return false;
+}
+function setStatus(text, mode='local'){
+  const el = document.getElementById('cloud-status');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'status-dot ' + mode;
+}
+
+function totals(){
+  const memberTotal = state.members.filter(m => m.paid).length * MEMBER_AMOUNT;
+  const incomeTotal = state.income.reduce((a,b)=>a + Number(b.amount || 0), 0);
+  const expenseTotal = state.expenses.reduce((a,b)=>a + Number(b.amount || 0), 0);
+  const balance = Number(state.carryover || 0) + memberTotal + incomeTotal - expenseTotal;
+  return { memberTotal, incomeTotal, expenseTotal, balance };
+}
+
+function daysSinceCycle(){
+  const start = new Date((state.cycleStart || today()) + 'T00:00:00');
+  const now = new Date(today() + 'T00:00:00');
+  return Math.floor((now - start) / 86400000);
+}
+
+function autoCycleCheck(){
+  const days = daysSinceCycle();
+  if (days >= CYCLE_DAYS) resetCycle(true);
+}
+
+function resetCycle(auto=false){
+  const t = totals();
+  state = {
+    ...state,
+    cycleStart: today(),
+    carryover: Math.max(t.balance, 0),
+    members: state.members.map(m => ({...m, paid:false})),
     income: [],
     expenses: [],
     updatedAt: Date.now()
   };
+  persist();
+  if (!auto) alert('Cycle reset. Sobra was carried over.');
 }
 
-function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
-function todayStr() { return new Date().toISOString().split('T')[0]; }
-function money(n) { return '₱' + Number(n || 0).toFixed(2); }
-function esc(v) { const d = document.createElement('div'); d.textContent = String(v ?? ''); return d.innerHTML; }
-function dateLabel(date) { return new Date(date + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }); }
-
-function loadLocal() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(LOCAL_KEY));
-    if (saved && typeof saved === 'object') state = { ...defaultState(), ...saved };
-  } catch {}
-  if (!state.adminPassword || state.adminPassword === 'admin123') state.adminPassword = DEFAULT_PASSWORD;
+function render(){
+  const t = totals();
+  document.getElementById('balance-amount').textContent = peso(t.balance);
+  document.getElementById('carryover-amount').textContent = peso(state.carryover);
+  document.getElementById('member-total').textContent = peso(t.memberTotal);
+  document.getElementById('income-total').textContent = peso(t.incomeTotal);
+  document.getElementById('expense-total').textContent = peso(t.expenseTotal);
+  const left = Math.max(CYCLE_DAYS - daysSinceCycle(), 0);
+  document.getElementById('cycle-text').textContent = `Cycle started ${state.cycleStart}. ${left} day(s) before auto reset. Sobra carries over.`;
+  renderMembers(); renderIncome(); renderExpenses();
+}
+function esc(str){ return String(str ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+function renderMembers(){
+  const box = document.getElementById('members-list');
+  if (!state.members.length) { box.innerHTML = '<div class="empty">No members yet.</div>'; return; }
+  box.innerHTML = state.members.map(m => `
+    <div class="member-row">
+      <input type="checkbox" data-action="toggle-member" data-id="${m.id}" ${m.paid ? 'checked' : ''} />
+      <input type="text" data-action="rename-member" data-id="${m.id}" value="${esc(m.name)}" />
+      <span class="${m.paid ? 'paid':'unpaid'}">${m.paid ? 'Paid ₱700':'Unpaid'}</span>
+      <button class="btn danger" data-action="delete-member" data-id="${m.id}">Delete</button>
+    </div>`).join('');
+}
+function renderIncome(){
+  const box = document.getElementById('income-list');
+  if (!state.income.length) { box.innerHTML = '<div class="empty">No money in yet.</div>'; return; }
+  box.innerHTML = state.income.slice().reverse().map(i => `
+    <div class="list-row"><span>${esc(i.date)}</span><div><strong>${esc(i.source)}</strong><br><small>${esc(i.description)}</small></div><strong>${peso(i.amount)}</strong><button class="btn danger" data-action="delete-income" data-id="${i.id}">Delete</button></div>`).join('');
+}
+function renderExpenses(){
+  const box = document.getElementById('expense-list');
+  if (!state.expenses.length) { box.innerHTML = '<div class="empty">No expenses yet.</div>'; return; }
+  box.innerHTML = state.expenses.slice().reverse().map(e => `
+    <div class="list-row"><span>${esc(e.date)}</span><div><strong>${esc(e.category)}</strong><br><small>${esc(e.description)}</small></div><strong>${peso(e.amount)}</strong><button class="btn danger" data-action="delete-expense" data-id="${e.id}">Delete</button></div>`).join('');
 }
 
-function saveLocal() {
+function persist(){
   state.updatedAt = Date.now();
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(state));
-}
-
-const saveCloudDebounced = debounce(async () => {
-  if (!cloudReady || !docRef || applyingRemote) return;
-  try {
-    await docRef.set({ ...state, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    setSyncStatus('Cloud synced');
-  } catch (err) {
-    console.warn(err);
-    setSyncStatus('Local save only');
-  }
-}, 400);
-
-function persist() {
   saveLocal();
   render();
-  saveCloudDebounced();
+  if (!cloudReady || !cloudRef || applyingRemote) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try { await setDoc(cloudRef, state, { merge: false }); setStatus('Online synced', 'online'); }
+    catch (err) { console.error(err); setStatus('Cloud save blocked', 'error'); }
+  }, 250);
 }
 
-function debounce(fn, wait) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
-}
-
-function isFirebaseConfigured() {
-  const cfg = window.firebaseConfig || {};
-  return cfg.apiKey && !String(cfg.apiKey).includes('PASTE_') && cfg.projectId && !String(cfg.projectId).includes('PASTE_');
-}
-
-async function initFirebase() {
-  if (!window.firebase || !isFirebaseConfigured()) {
-    setSyncStatus('Local save');
-    return;
-  }
+async function initFirebase(){
   try {
-    firebase.initializeApp(window.firebaseConfig);
-    await firebase.auth().signInAnonymously();
-    db = firebase.firestore();
-    const roomId = window.APARTMENT_ROOM_ID || 'default-apartment';
-    docRef = db.collection('apartmentBudgets').doc(roomId);
-    const snap = await docRef.get();
-    if (!snap.exists) {
-      await docRef.set({ ...state, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-    } else {
-      const remote = snap.data();
-      if (remote && remote.members) {
-        state = normalizeRemote(remote);
-        saveLocal();
-      }
-    }
-    unsubscribeCloud = docRef.onSnapshot((snapshot) => {
-      if (!snapshot.exists) return;
-      applyingRemote = true;
-      state = normalizeRemote(snapshot.data());
-      saveLocal();
-      render();
-      applyingRemote = false;
-      setSyncStatus('Cloud synced');
-    });
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    enableIndexedDbPersistence(db).catch(() => {});
+    cloudRef = doc(db, 'budgetApp', 'apartmentAmotanMain');
     cloudReady = true;
-    setSyncStatus('Cloud synced');
+    setStatus('Connecting cloud...', 'local');
+
+    const snap = await getDoc(cloudRef);
+    if (!snap.exists()) await setDoc(cloudRef, state, { merge: false });
+
+    onSnapshot(cloudRef, (docSnap) => {
+      if (!docSnap.exists()) return;
+      const remote = cleanState(docSnap.data());
+      const localUpdated = Number(state.updatedAt || 0);
+      if (remote.updatedAt >= localUpdated) {
+        applyingRemote = true;
+        state = remote;
+        saveLocal();
+        autoCycleCheck();
+        render();
+        applyingRemote = false;
+      }
+      setStatus('Online synced', 'online');
+    }, (err) => {
+      console.error(err);
+      setStatus('Cloud read blocked', 'error');
+    });
   } catch (err) {
-    console.warn('Firebase unavailable:', err);
-    setSyncStatus('Local save only');
+    console.error(err);
+    cloudReady = false;
+    setStatus('Local save only', 'local');
   }
 }
 
-function normalizeRemote(data) {
-  const base = defaultState();
-  return {
-    ...base,
-    ...data,
-    adminPassword: data.adminPassword || DEFAULT_PASSWORD,
-    cycleStart: data.cycleStart || todayStr(),
-    carryover: Number(data.carryover || 0),
-    members: Array.isArray(data.members) ? data.members : base.members,
-    income: Array.isArray(data.income) ? data.income : [],
-    expenses: Array.isArray(data.expenses) ? data.expenses : []
-  };
-}
-
-function setSyncStatus(text) {
-  const el = document.getElementById('sync-status');
-  if (el) el.textContent = text;
-}
-
-function totals() {
-  const memberPaid = state.members.filter(m => m.paid).length * MEMBER_AMOUNT;
-  const memberUnpaid = state.members.filter(m => !m.paid).length * MEMBER_AMOUNT;
-  const manualPaid = state.income.reduce((sum, i) => sum + (i.paid ? Number(i.amount) : 0), 0);
-  const manualUnpaid = state.income.reduce((sum, i) => sum + (!i.paid ? Number(i.amount) : 0), 0);
-  const expenses = state.expenses.reduce((sum, e) => sum + Number(e.amount), 0);
-  const paidIn = state.carryover + memberPaid + manualPaid;
-  const balance = paidIn - expenses;
-  return { memberPaid, memberUnpaid, manualPaid, manualUnpaid, paidIn, unpaid: memberUnpaid + manualUnpaid, expenses, balance };
-}
-
-function render() {
-  const t = totals();
-  document.getElementById('balance-amount').textContent = money(t.balance);
-  document.getElementById('paid-in').textContent = money(t.paidIn);
-  document.getElementById('unpaid-amount').textContent = money(t.unpaid);
-  document.getElementById('spent-amount').textContent = money(t.expenses);
-  document.getElementById('carryover-amount').textContent = money(state.carryover);
-  document.getElementById('total-amount').textContent = money(t.expenses);
-  const bal = document.getElementById('balance-amount');
-  bal.classList.toggle('positive', t.balance >= 0);
-  bal.classList.toggle('negative', t.balance < 0);
-  renderCycleStatus();
-  renderMembers();
-  renderIncome();
-  renderExpenses();
-  renderChart();
-}
-
-function renderCycleStatus() {
-  const start = new Date(state.cycleStart + 'T00:00:00');
-  const next = new Date(start);
-  next.setDate(start.getDate() + 15);
-  const daysLeft = Math.ceil((next - new Date()) / 86400000);
-  const label = daysLeft > 0 ? `${daysLeft} day(s) left before next reset` : 'Cycle is over. Reset when ready.';
-  document.getElementById('cycle-status').textContent = `Started ${dateLabel(state.cycleStart)} • ${label}`;
-}
-
-function renderMembers() {
-  const list = document.getElementById('member-list');
-  const paidCount = state.members.filter(m => m.paid).length;
-  document.getElementById('paid-member-count').textContent = `${paidCount}/${state.members.length} paid`;
-  document.getElementById('member-paid-total').textContent = money(paidCount * MEMBER_AMOUNT);
-  list.innerHTML = state.members.map(m => `
-    <div class="member-item">
-      <label class="member-check">
-        <input type="checkbox" data-member-paid="${m.id}" ${m.paid ? 'checked' : ''} />
-        <span>${esc(m.name)}</span>
-      </label>
-      <strong>${m.paid ? money(MEMBER_AMOUNT) : 'Unpaid'}</strong>
-      <button class="mini-delete" data-delete-member="${m.id}">Delete</button>
-    </div>
-  `).join('');
-}
-
-function renderIncome() {
-  const body = document.getElementById('income-body');
-  if (!state.income.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty-state">No manual money in yet.</td></tr>';
-    return;
-  }
-  body.innerHTML = state.income.slice().reverse().map(i => `
-    <tr>
-      <td>${dateLabel(i.date)}</td><td>${esc(i.source)}</td><td>${esc(i.description)}</td><td>${money(i.amount)}</td>
-      <td><input type="checkbox" data-income-paid="${i.id}" ${i.paid ? 'checked' : ''}></td>
-      <td><button class="delete-btn" data-delete-income="${i.id}">Delete</button></td>
-    </tr>
-  `).join('');
-}
-
-function renderExpenses() {
-  const body = document.getElementById('expense-body');
-  if (!state.expenses.length) {
-    body.innerHTML = '<tr><td colspan="5" class="empty-state">No expenses yet.</td></tr>';
-    return;
-  }
-  body.innerHTML = state.expenses.slice().reverse().map(e => `
-    <tr>
-      <td>${dateLabel(e.date)}</td><td><span class="category-badge ${esc(e.category).toLowerCase()}">${esc(e.category)}</span></td><td>${esc(e.description)}</td><td>${money(e.amount)}</td>
-      <td><button class="delete-btn" data-delete-expense="${e.id}">Delete</button></td>
-    </tr>
-  `).join('');
-}
-
-function renderChart() {
-  const canvas = document.querySelector('#chart');
-  if (!canvas || !window.Chart) return;
-  const ctx = canvas.getContext('2d');
-  if (chart) chart.destroy();
-  const grouped = {};
-  state.expenses.forEach(e => grouped[e.category] = (grouped[e.category] || 0) + Number(e.amount));
-  const labels = Object.keys(grouped);
-  const data = Object.values(grouped);
-  if (!labels.length) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.font = '14px sans-serif';
-    ctx.fillStyle = '#8a7b68';
-    ctx.textAlign = 'center';
-    ctx.fillText('No expenses yet', canvas.width / 2, canvas.height / 2);
-    return;
-  }
-  chart = new Chart(ctx, {
-    type: 'doughnut',
-    data: { labels, datasets: [{ data, backgroundColor: ['#b7791f', '#7c3aed', '#0f766e', '#dc2626', '#2563eb'], borderWidth: 2 }] },
-    options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
-  });
-}
-
-function requireAdmin() {
-  if (isAdmin) return true;
-  const pass = prompt('Enter admin password:');
-  if (pass === state.adminPassword) { isAdmin = true; return true; }
-  if (pass !== null) alert('Incorrect password.');
-  return false;
-}
-
-function resetCycle() {
-  const t = totals();
-  const newCarryover = Math.max(0, t.balance);
-  state.carryover = newCarryover;
-  state.cycleStart = todayStr();
-  state.income = [];
-  state.expenses = [];
-  state.members = state.members.map(m => ({ ...m, paid: false }));
-  persist();
-}
-
-function bindEvents() {
-  const today = todayStr();
-  document.getElementById('income-date').value = today;
-  document.getElementById('expense-date').value = today;
+function initEvents(){
+  document.getElementById('income-date').value = today();
+  document.getElementById('expense-date').value = today();
 
   document.getElementById('member-form').addEventListener('submit', e => {
     e.preventDefault(); if (!requireAdmin()) return;
     const input = document.getElementById('member-name');
-    state.members.push({ id: uid(), name: input.value.trim(), paid: false });
-    input.value = ''; persist();
+    const name = input.value.trim(); if (!name) return;
+    state.members.push({ id: uid(), name, paid:false }); input.value = ''; persist();
   });
-
+  document.getElementById('members-list').addEventListener('change', e => {
+    const id = e.target.dataset.id; if (!id) return;
+    const member = state.members.find(m => m.id === id); if (!member) return;
+    if (e.target.dataset.action === 'toggle-member') { if (!requireAdmin()) { e.target.checked = member.paid; return; } member.paid = e.target.checked; persist(); }
+    if (e.target.dataset.action === 'rename-member') { member.name = e.target.value.trim() || 'Member'; persist(); }
+  });
+  document.getElementById('members-list').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-action="delete-member"]'); if (!btn) return;
+    if (!requireAdmin()) return;
+    state.members = state.members.filter(m => m.id !== btn.dataset.id); persist();
+  });
   document.getElementById('income-form').addEventListener('submit', e => {
     e.preventDefault(); if (!requireAdmin()) return;
-    state.income.push({ id: uid(), amount: Number(document.getElementById('income-amount').value), source: document.getElementById('income-source').value, description: document.getElementById('income-description').value.trim(), date: document.getElementById('income-date').value, paid: document.getElementById('income-paid').checked });
-    e.target.reset(); document.getElementById('income-date').value = todayStr(); document.getElementById('income-paid').checked = true; persist();
+    state.income.push({ id: uid(), amount: Number(document.getElementById('income-amount').value), source: document.getElementById('income-source').value.trim(), description: document.getElementById('income-description').value.trim(), date: document.getElementById('income-date').value || today() });
+    e.target.reset(); document.getElementById('income-date').value = today(); persist();
   });
-
   document.getElementById('expense-form').addEventListener('submit', e => {
     e.preventDefault(); if (!requireAdmin()) return;
-    state.expenses.push({ id: uid(), amount: Number(document.getElementById('expense-amount').value), category: document.getElementById('expense-category').value, description: document.getElementById('expense-description').value.trim(), date: document.getElementById('expense-date').value });
-    e.target.reset(); document.getElementById('expense-date').value = todayStr(); persist();
+    state.expenses.push({ id: uid(), amount: Number(document.getElementById('expense-amount').value), category: document.getElementById('expense-category').value, description: document.getElementById('expense-description').value.trim(), date: document.getElementById('expense-date').value || today() });
+    e.target.reset(); document.getElementById('expense-date').value = today(); persist();
   });
-
-  document.body.addEventListener('change', e => {
-    if (e.target.matches('[data-member-paid]')) { if (!requireAdmin()) { e.target.checked = !e.target.checked; return; } const id = e.target.dataset.memberPaid; state.members = state.members.map(m => m.id === id ? { ...m, paid: e.target.checked } : m); persist(); }
-    if (e.target.matches('[data-income-paid]')) { if (!requireAdmin()) { e.target.checked = !e.target.checked; return; } const id = e.target.dataset.incomePaid; state.income = state.income.map(i => i.id === id ? { ...i, paid: e.target.checked } : i); persist(); }
-  });
-
   document.body.addEventListener('click', e => {
-    const delMember = e.target.closest('[data-delete-member]');
-    const delIncome = e.target.closest('[data-delete-income]');
-    const delExpense = e.target.closest('[data-delete-expense]');
-    if (delMember) { if (!requireAdmin()) return; state.members = state.members.filter(m => m.id !== delMember.dataset.deleteMember); persist(); }
-    if (delIncome) { if (!requireAdmin()) return; state.income = state.income.filter(i => i.id !== delIncome.dataset.deleteIncome); persist(); }
-    if (delExpense) { if (!requireAdmin()) return; state.expenses = state.expenses.filter(x => x.id !== delExpense.dataset.deleteExpense); persist(); }
+    const incomeBtn = e.target.closest('button[data-action="delete-income"]');
+    const expenseBtn = e.target.closest('button[data-action="delete-expense"]');
+    if (incomeBtn) { if (!requireAdmin()) return; state.income = state.income.filter(i => i.id !== incomeBtn.dataset.id); persist(); }
+    if (expenseBtn) { if (!requireAdmin()) return; state.expenses = state.expenses.filter(x => x.id !== expenseBtn.dataset.id); persist(); }
   });
-
-  document.getElementById('reset-cycle-btn').addEventListener('click', () => {
+  document.getElementById('reset-cycle-btn').addEventListener('click', () => { if (requireAdmin() && confirm('Reset this 15-day cycle and carry over sobra?')) resetCycle(false); });
+  document.getElementById('wipe-btn').addEventListener('click', () => { if (requireAdmin() && confirm('Delete all data including carryover?')) { state = defaultState(); persist(); } });
+  document.getElementById('save-now-btn').addEventListener('click', () => persist());
+  document.getElementById('export-btn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type:'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'apartment-amotan-backup.json'; a.click(); URL.revokeObjectURL(a.href);
+  });
+  document.getElementById('import-file').addEventListener('change', async e => {
     if (!requireAdmin()) return;
-    if (confirm('Reset this 15-day cycle? Sobra will carry over.')) resetCycle();
-  });
-
-  document.getElementById('password-form').addEventListener('submit', e => {
-    e.preventDefault();
-    const current = document.getElementById('current-password').value;
-    const next = document.getElementById('new-password').value;
-    if (current !== state.adminPassword) return alert('Current password is incorrect.');
-    if (next.length < 4) return alert('New password must be at least 4 characters.');
-    state.adminPassword = next;
-    isAdmin = false;
-    e.target.reset();
-    persist();
-    alert('Password updated.');
+    const file = e.target.files[0]; if (!file) return;
+    state = cleanState(JSON.parse(await file.text())); persist(); e.target.value = '';
   });
 }
 
-window.addEventListener('DOMContentLoaded', async () => {
-  loadLocal();
-  bindEvents();
-  render();
-  await initFirebase();
-  // Auto reset check: does not force reset without carrying sobra.
-  const start = new Date(state.cycleStart + 'T00:00:00');
-  const days = Math.floor((new Date() - start) / 86400000);
-  if (days >= 15) {
-    // Auto reset safely. Positive remaining balance becomes carryover.
-    resetCycle();
-  }
-});
+initEvents();
+autoCycleCheck();
+render();
+initFirebase();
