@@ -1,27 +1,47 @@
-/* Apartment Amotan Tracker - rebuilt/debugged */
-const ADMIN_PASSWORD = 'Master';
-const AMOTAN_PER_MEMBER = 700;
-const CYCLE_DAYS = 15;
-const LOCAL_KEY = 'apartment-amotan-state-v3';
-const SESSION_KEY = 'apartment-amotan-unlocked';
-const DOC_PATH = ['budgetApp', 'apartmentAmotanMain'];
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  onSnapshot,
+  enableIndexedDbPersistence,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-let db = null;
-let unsub = null;
-let cloudReady = false;
-let isRemoteApplying = false;
-let saveTimer = null;
+const firebaseConfig = {
+  apiKey: "AIzaSyDYE1h4hmU8ppSa18Jz-veC6GADBgsIa3g",
+  authDomain: "tee-shirt-2.firebaseapp.com",
+  projectId: "tee-shirt-2",
+  storageBucket: "tee-shirt-2.firebasestorage.app",
+  messagingSenderId: "795409975965",
+  appId: "1:795409975965:web:679a7672811d748677e274",
+  measurementId: "G-QY4MJ62VFZ"
+};
+
+const PASSWORD = "Master";
+const AMOTAN_AMOUNT = 700;
+const CYCLE_DAYS = 15;
+const LOCAL_KEY = "apartment-amotan-state-v3";
 
 const defaultState = () => ({
   members: [],
-  incomes: [],
+  income: [],
   expenses: [],
   carryover: 0,
-  cycleStartedAt: todayISO(),
-  updatedAt: Date.now()
+  cycleStarted: todayISO(),
+  updatedAt: null
 });
 
 let state = defaultState();
+let unlocked = sessionStorage.getItem("amotUnlock") === "yes";
+let db = null;
+let docRef = null;
+let firebaseOnline = false;
+let applyingRemote = false;
+let saveTimer = null;
+
+const $ = (id) => document.getElementById(id);
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -31,315 +51,335 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-function money(n) {
-  const amount = Number(n || 0);
-  return '₱' + amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function money(value) {
+  const num = Number(value || 0);
+  return "₱" + num.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function esc(value) {
-  const div = document.createElement('div');
-  div.textContent = String(value ?? '');
+function escapeHTML(text = "") {
+  const div = document.createElement("div");
+  div.textContent = String(text);
   return div.innerHTML;
 }
 
-function normalize(raw) {
-  const clean = defaultState();
-  if (!raw || typeof raw !== 'object') return clean;
-  clean.members = Array.isArray(raw.members) ? raw.members.map(m => ({
-    id: String(m.id || uid()),
-    name: String(m.name || 'Member'),
-    paid: Boolean(m.paid)
-  })) : [];
-  clean.incomes = Array.isArray(raw.incomes) ? raw.incomes.map(i => ({
-    id: String(i.id || uid()),
-    amount: Number(i.amount || 0),
-    description: String(i.description || ''),
-    date: String(i.date || todayISO())
-  })) : [];
-  clean.expenses = Array.isArray(raw.expenses) ? raw.expenses.map(e => ({
-    id: String(e.id || uid()),
-    amount: Number(e.amount || 0),
-    description: String(e.description || ''),
-    date: String(e.date || todayISO())
-  })) : [];
-  clean.carryover = Number(raw.carryover || 0);
-  clean.cycleStartedAt = String(raw.cycleStartedAt || todayISO());
-  clean.updatedAt = Number(raw.updatedAt || Date.now());
-  return clean;
+function daysBetween(startISO, endISO) {
+  const start = new Date(startISO + "T00:00:00");
+  const end = new Date(endISO + "T00:00:00");
+  return Math.floor((end - start) / 86400000);
+}
+
+function calcTotals() {
+  const paidMembers = state.members.filter((m) => m.paid).length;
+  const amotanTotal = paidMembers * AMOTAN_AMOUNT;
+  const incomeTotal = state.income.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const expenseTotal = state.expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const remaining = Number(state.carryover || 0) + amotanTotal + incomeTotal - expenseTotal;
+  return { paidMembers, amotanTotal, incomeTotal, expenseTotal, remaining };
+}
+
+function requireUnlock() {
+  if (unlocked) return true;
+  const input = prompt("Enter admin password:");
+  if (input === PASSWORD) {
+    unlocked = true;
+    sessionStorage.setItem("amotUnlock", "yes");
+    return true;
+  }
+  if (input !== null) alert("Incorrect password.");
+  return false;
+}
+
+function setStatus(text, mode) {
+  const el = $("syncStatus");
+  el.textContent = text;
+  el.className = `status ${mode}`;
+}
+
+function normalizeState(data) {
+  return {
+    ...defaultState(),
+    ...(data || {}),
+    members: Array.isArray(data?.members) ? data.members : [],
+    income: Array.isArray(data?.income) ? data.income : [],
+    expenses: Array.isArray(data?.expenses) ? data.expenses : [],
+    carryover: Number(data?.carryover || 0),
+    cycleStarted: data?.cycleStarted || todayISO()
+  };
 }
 
 function loadLocal() {
   try {
-    const saved = localStorage.getItem(LOCAL_KEY);
-    return saved ? normalize(JSON.parse(saved)) : defaultState();
-  } catch (err) {
-    console.warn('Local load failed:', err);
+    const raw = localStorage.getItem(LOCAL_KEY);
+    return raw ? normalizeState(JSON.parse(raw)) : defaultState();
+  } catch {
     return defaultState();
   }
 }
 
 function saveLocal() {
-  try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(state));
-  } catch (err) {
-    console.warn('Local save failed:', err);
-  }
+  localStorage.setItem(LOCAL_KEY, JSON.stringify({ ...state, updatedAt: Date.now() }));
 }
 
-function initFirebase() {
-  try {
-    if (!window.firebaseConfig || !window.firebase) throw new Error('Firebase config/scripts missing');
-    if (!firebase.apps.length) firebase.initializeApp(window.firebaseConfig || firebaseConfig);
-    db = firebase.firestore();
-    cloudReady = true;
-    setStatus('Online sync connecting...', 'online');
-    listenCloud();
-  } catch (err) {
-    cloudReady = false;
-    setStatus('Local only', 'offline');
-    console.warn('Firebase unavailable:', err);
-  }
-}
-
-function setStatus(text, mode) {
-  const el = document.getElementById('sync-status');
-  if (!el) return;
-  el.textContent = text;
-  el.className = 'status ' + mode;
-}
-
-function cloudDoc() {
-  return db.collection(DOC_PATH[0]).doc(DOC_PATH[1]);
-}
-
-function listenCloud() {
-  if (!cloudReady) return;
-  if (unsub) unsub();
-  unsub = cloudDoc().onSnapshot(async snap => {
-    if (!snap.exists) {
-      await cloudDoc().set({ ...state, updatedAt: Date.now() }, { merge: true });
-      return;
-    }
-    const remote = normalize(snap.data());
-    const localUpdated = Number(state.updatedAt || 0);
-    if (remote.updatedAt >= localUpdated) {
-      isRemoteApplying = true;
-      state = remote;
-      saveLocal();
-      render();
-      isRemoteApplying = false;
-    }
-    setStatus('Online sync active', 'online');
-  }, err => {
-    console.error('Firestore listener error:', err);
-    setStatus('Cloud blocked - check rules', 'offline');
-  });
-}
-
-function saveCloudDebounced() {
-  if (isRemoteApplying) return;
-  state.updatedAt = Date.now();
+async function saveCloudNow() {
   saveLocal();
-  if (!cloudReady) {
-    setStatus('Saved locally', 'offline');
-    return;
+  if (!docRef || applyingRemote) return;
+  try {
+    await setDoc(docRef, { ...state, updatedAt: serverTimestamp() }, { merge: true });
+    firebaseOnline = true;
+    setStatus("Synced online", "online");
+  } catch (error) {
+    console.error("Cloud save failed:", error);
+    firebaseOnline = false;
+    setStatus("Local only - check Firestore rules", "local");
   }
+}
+
+function scheduleSave() {
+  saveLocal();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    try {
-      await cloudDoc().set(JSON.parse(JSON.stringify(state)), { merge: true });
-      setStatus('Saved online', 'online');
-    } catch (err) {
-      console.error('Cloud save failed:', err);
-      setStatus('Cloud save failed', 'offline');
-    }
-  }, 250);
-}
-
-function isUnlocked() {
-  return sessionStorage.getItem(SESSION_KEY) === 'yes';
-}
-
-function requireAdmin() {
-  if (isUnlocked()) return true;
-  const pass = prompt('Enter admin password:');
-  if (pass === ADMIN_PASSWORD) {
-    sessionStorage.setItem(SESSION_KEY, 'yes');
-    return true;
-  }
-  if (pass !== null) alert('Incorrect password.');
-  return false;
-}
-
-function totals() {
-  const memberPaid = state.members.filter(m => m.paid).length * AMOTAN_PER_MEMBER;
-  const incomeTotal = state.incomes.reduce((s, i) => s + Number(i.amount || 0), 0);
-  const expenseTotal = state.expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
-  const balance = Number(state.carryover || 0) + memberPaid + incomeTotal - expenseTotal;
-  return { memberPaid, incomeTotal, expenseTotal, balance };
-}
-
-function daysLeft() {
-  const started = new Date(state.cycleStartedAt + 'T00:00:00');
-  const now = new Date(todayISO() + 'T00:00:00');
-  const elapsed = Math.floor((now - started) / 86400000);
-  return Math.max(0, CYCLE_DAYS - elapsed);
-}
-
-function autoCycleCheck() {
-  if (daysLeft() > 0) return;
-  const t = totals();
-  state.carryover = Math.max(0, t.balance);
-  state.members = state.members.map(m => ({ ...m, paid: false }));
-  state.incomes = [];
-  state.expenses = [];
-  state.cycleStartedAt = todayISO();
-  saveCloudDebounced();
+  saveTimer = setTimeout(saveCloudNow, 350);
 }
 
 function render() {
-  const t = totals();
-  document.getElementById('balance-amount').textContent = money(t.balance);
-  document.getElementById('paid-members-count').textContent = `${state.members.filter(m => m.paid).length}/${state.members.length}`;
-  document.getElementById('carryover-amount').textContent = money(state.carryover);
-  document.getElementById('cycle-start-label').textContent = state.cycleStartedAt;
-  document.getElementById('cycle-days-left').textContent = `${daysLeft()} day(s) left`;
+  const totals = calcTotals();
+  $("remainingBalance").textContent = money(totals.remaining);
+  $("paidMembers").textContent = `${totals.paidMembers}/${state.members.length}`;
+  $("carryoverAmount").textContent = money(state.carryover);
+  $("cycleStarted").textContent = state.cycleStarted || "—";
 
-  const membersList = document.getElementById('members-list');
-  membersList.innerHTML = state.members.length ? state.members.map(m => `
-    <div class="member-item">
-      <label>
-        <input type="checkbox" class="member-paid" data-id="${esc(m.id)}" ${m.paid ? 'checked' : ''} />
-        <span>${esc(m.name)}</span>
-      </label>
-      <span class="member-amount">${m.paid ? money(AMOTAN_PER_MEMBER) : 'Unpaid'}</span>
-      <button class="mini danger remove-member" data-id="${esc(m.id)}" type="button">Delete</button>
-    </div>
-  `).join('') : '<p class="empty">No members yet.</p>';
+  const used = daysBetween(state.cycleStarted, todayISO());
+  const left = Math.max(0, CYCLE_DAYS - used);
+  $("cycleLeft").textContent = `${left} day(s) left`;
 
-  document.getElementById('income-body').innerHTML = state.incomes.length ? state.incomes.map(i => `
-    <tr><td>${esc(i.date)}</td><td>${esc(i.description)}</td><td>${money(i.amount)}</td><td><button class="mini danger delete-income" data-id="${esc(i.id)}" type="button">Delete</button></td></tr>
-  `).join('') : '<tr><td colspan="4" class="empty">No money in yet.</td></tr>';
-
-  document.getElementById('expense-body').innerHTML = state.expenses.length ? state.expenses.map(e => `
-    <tr><td>${esc(e.date)}</td><td>${esc(e.description)}</td><td>${money(e.amount)}</td><td><button class="mini danger delete-expense" data-id="${esc(e.id)}" type="button">Delete</button></td></tr>
-  `).join('') : '<tr><td colspan="4" class="empty">No expenses yet.</td></tr>';
+  renderMembers();
+  renderIncome();
+  renderExpenses();
 }
 
-function startNewCycle() {
-  const t = totals();
-  state.carryover = Math.max(0, t.balance);
-  state.members = state.members.map(m => ({ ...m, paid: false }));
-  state.incomes = [];
-  state.expenses = [];
-  state.cycleStartedAt = todayISO();
-  saveCloudDebounced();
+function renderMembers() {
+  const box = $("membersList");
+  if (!state.members.length) {
+    box.innerHTML = `<p class="empty">No members yet.</p>`;
+    return;
+  }
+  box.innerHTML = state.members.map((m) => `
+    <div class="member-row">
+      <label>
+        <input type="checkbox" class="member-paid" data-id="${m.id}" ${m.paid ? "checked" : ""} />
+        <span>${escapeHTML(m.name)}</span>
+      </label>
+      <strong>${m.paid ? money(AMOTAN_AMOUNT) : "Unpaid"}</strong>
+      <button class="mini danger delete-member" data-id="${m.id}" type="button">Delete</button>
+    </div>
+  `).join("");
+}
+
+function renderIncome() {
+  const body = $("incomeBody");
+  if (!state.income.length) {
+    body.innerHTML = `<tr><td colspan="4" class="empty">No money in yet.</td></tr>`;
+    return;
+  }
+  body.innerHTML = state.income.map((i) => `
+    <tr>
+      <td>${escapeHTML(i.date)}</td>
+      <td>${escapeHTML(i.description)}</td>
+      <td>${money(i.amount)}</td>
+      <td><button class="mini danger delete-income" data-id="${i.id}" type="button">Delete</button></td>
+    </tr>
+  `).join("");
+}
+
+function renderExpenses() {
+  const body = $("expenseBody");
+  if (!state.expenses.length) {
+    body.innerHTML = `<tr><td colspan="4" class="empty">No expenses yet.</td></tr>`;
+    return;
+  }
+  body.innerHTML = state.expenses.map((e) => `
+    <tr>
+      <td>${escapeHTML(e.date)}</td>
+      <td>${escapeHTML(e.description)}</td>
+      <td>${money(e.amount)}</td>
+      <td><button class="mini danger delete-expense" data-id="${e.id}" type="button">Delete</button></td>
+    </tr>
+  `).join("");
+}
+
+function endCycle() {
+  const totals = calcTotals();
+  const nextCarryover = Math.max(0, totals.remaining);
+  state = {
+    ...state,
+    members: state.members.map((m) => ({ ...m, paid: false })),
+    income: [],
+    expenses: [],
+    carryover: nextCarryover,
+    cycleStarted: todayISO()
+  };
   render();
+  scheduleSave();
+}
+
+function checkAutoCycle() {
+  if (daysBetween(state.cycleStarted, todayISO()) >= CYCLE_DAYS) {
+    endCycle();
+  }
 }
 
 function bindEvents() {
-  document.getElementById('member-form').addEventListener('submit', e => {
+  $("incomeDate").value = todayISO();
+  $("expenseDate").value = todayISO();
+
+  $("lockBtn").addEventListener("click", () => {
+    unlocked = false;
+    sessionStorage.removeItem("amotUnlock");
+    alert("Locked. Password will be requested on next change.");
+  });
+
+  $("memberForm").addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!requireAdmin()) return;
-    const input = document.getElementById('member-name');
-    const name = input.value.trim();
-    if (!name) return;
+    if (!requireUnlock()) return;
+    const name = $("memberName").value.trim();
+    if (!name) return alert("Enter member name.");
     state.members.push({ id: uid(), name, paid: false });
-    input.value = '';
-    saveCloudDebounced();
+    $("memberName").value = "";
     render();
+    scheduleSave();
   });
 
-  document.getElementById('members-list').addEventListener('change', e => {
-    const box = e.target.closest('.member-paid');
-    if (!box) return;
-    if (!requireAdmin()) { box.checked = !box.checked; return; }
-    const member = state.members.find(m => m.id === box.dataset.id);
-    if (member) member.paid = box.checked;
-    saveCloudDebounced();
+  $("membersList").addEventListener("change", (e) => {
+    if (!e.target.classList.contains("member-paid")) return;
+    if (!requireUnlock()) {
+      e.target.checked = !e.target.checked;
+      return;
+    }
+    const member = state.members.find((m) => m.id === e.target.dataset.id);
+    if (member) member.paid = e.target.checked;
     render();
+    scheduleSave();
   });
 
-  document.getElementById('members-list').addEventListener('click', e => {
-    const btn = e.target.closest('.remove-member');
+  $("membersList").addEventListener("click", (e) => {
+    const btn = e.target.closest(".delete-member");
     if (!btn) return;
-    if (!requireAdmin()) return;
-    state.members = state.members.filter(m => m.id !== btn.dataset.id);
-    saveCloudDebounced();
+    if (!requireUnlock()) return;
+    state.members = state.members.filter((m) => m.id !== btn.dataset.id);
     render();
+    scheduleSave();
   });
 
-  document.getElementById('money-in-form').addEventListener('submit', e => {
+  $("incomeForm").addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!requireAdmin()) return;
-    const amount = Number(document.getElementById('income-amount').value);
-    const description = document.getElementById('income-desc').value.trim();
-    const date = document.getElementById('income-date').value || todayISO();
-    if (!amount || amount <= 0 || !description) return alert('Please enter valid money in details.');
-    state.incomes.push({ id: uid(), amount, description, date });
+    if (!requireUnlock()) return;
+    const amount = Number($("incomeAmount").value);
+    const description = $("incomeDesc").value.trim();
+    const date = $("incomeDate").value || todayISO();
+    if (!amount || amount <= 0) return alert("Enter valid money in amount.");
+    if (!description) return alert("Enter description/source.");
+    state.income.unshift({ id: uid(), amount, description, date });
     e.target.reset();
-    document.getElementById('income-date').value = todayISO();
-    saveCloudDebounced();
+    $("incomeDate").value = todayISO();
     render();
+    scheduleSave();
   });
 
-  document.getElementById('expense-form').addEventListener('submit', e => {
+  $("incomeBody").addEventListener("click", (e) => {
+    const btn = e.target.closest(".delete-income");
+    if (!btn) return;
+    if (!requireUnlock()) return;
+    state.income = state.income.filter((i) => i.id !== btn.dataset.id);
+    render();
+    scheduleSave();
+  });
+
+  $("expenseForm").addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!requireAdmin()) return;
-    const amount = Number(document.getElementById('expense-amount').value);
-    const description = document.getElementById('expense-desc').value.trim();
-    const date = document.getElementById('expense-date').value || todayISO();
-    if (!amount || amount <= 0 || !description) return alert('Please enter valid expense details.');
-    state.expenses.push({ id: uid(), amount, description, date });
+    if (!requireUnlock()) return;
+    const amount = Number($("expenseAmount").value);
+    const description = $("expenseDesc").value.trim();
+    const date = $("expenseDate").value || todayISO();
+    if (!amount || amount <= 0) return alert("Enter valid expense amount.");
+    if (!description) return alert("Enter expense description.");
+    state.expenses.unshift({ id: uid(), amount, description, date });
     e.target.reset();
-    document.getElementById('expense-date').value = todayISO();
-    saveCloudDebounced();
+    $("expenseDate").value = todayISO();
     render();
+    scheduleSave();
   });
 
-  document.body.addEventListener('click', e => {
-    const incomeBtn = e.target.closest('.delete-income');
-    const expenseBtn = e.target.closest('.delete-expense');
-    if (incomeBtn) {
-      if (!requireAdmin()) return;
-      state.incomes = state.incomes.filter(i => i.id !== incomeBtn.dataset.id);
-      saveCloudDebounced();
-      render();
-    }
-    if (expenseBtn) {
-      if (!requireAdmin()) return;
-      state.expenses = state.expenses.filter(x => x.id !== expenseBtn.dataset.id);
-      saveCloudDebounced();
-      render();
-    }
+  $("expenseBody").addEventListener("click", (e) => {
+    const btn = e.target.closest(".delete-expense");
+    if (!btn) return;
+    if (!requireUnlock()) return;
+    state.expenses = state.expenses.filter((x) => x.id !== btn.dataset.id);
+    render();
+    scheduleSave();
   });
 
-  document.getElementById('reset-cycle-btn').addEventListener('click', () => {
-    if (!requireAdmin()) return;
-    if (confirm('Start new 15-day cycle? Current remaining sobra will become carryover.')) startNewCycle();
+  $("manualResetBtn").addEventListener("click", () => {
+    if (!requireUnlock()) return;
+    if (confirm("End this 15-day cycle now? Sobra will carry over.")) endCycle();
   });
 
-  document.getElementById('reset-all-btn').addEventListener('click', () => {
-    if (!requireAdmin()) return;
-    if (confirm('Reset everything? This removes all members, money in, expenses, and carryover.')) {
+  $("clearAllBtn").addEventListener("click", () => {
+    if (!requireUnlock()) return;
+    if (confirm("Clear ALL members, logs, and carryover?")) {
       state = defaultState();
-      saveCloudDebounced();
       render();
+      scheduleSave();
     }
-  });
-
-  document.getElementById('lock-btn').addEventListener('click', () => {
-    sessionStorage.removeItem(SESSION_KEY);
-    alert('App locked. Password will be asked on next edit.');
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('income-date').value = todayISO();
-  document.getElementById('expense-date').value = todayISO();
-  state = loadLocal();
+async function initFirebase() {
+  try {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    enableIndexedDbPersistence(db).catch(() => {});
+    docRef = doc(db, "budgetApp", "apartmentAmotan");
+
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      state = normalizeState(snap.data());
+    } else {
+      const local = loadLocal();
+      state = normalizeState(local);
+      await setDoc(docRef, { ...state, updatedAt: serverTimestamp() }, { merge: true });
+    }
+
+    firebaseOnline = true;
+    setStatus("Synced online", "online");
+
+    onSnapshot(docRef, (snapshot) => {
+      if (!snapshot.exists()) return;
+      applyingRemote = true;
+      state = normalizeState(snapshot.data());
+      saveLocal();
+      checkAutoCycle();
+      render();
+      applyingRemote = false;
+      setStatus("Synced online", "online");
+    }, (error) => {
+      console.error("Realtime listener failed:", error);
+      firebaseOnline = false;
+      setStatus("Local only - rules/network issue", "local");
+    });
+  } catch (error) {
+    console.error("Firebase init failed:", error);
+    state = loadLocal();
+    firebaseOnline = false;
+    setStatus("Local only - Firebase not connected", "local");
+  }
+}
+
+async function boot() {
   bindEvents();
-  autoCycleCheck();
+  state = loadLocal();
   render();
-  initFirebase();
-});
+  await initFirebase();
+  checkAutoCycle();
+  render();
+}
+
+boot();

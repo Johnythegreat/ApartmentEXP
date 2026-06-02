@@ -1,27 +1,21 @@
-Apartment Amotan Tracker - Rebuilt Debugged Version
+Apartment Amotan Tracker - Realtime Firebase Version
 
-Features:
-- Firebase realtime sync using onSnapshot
-- Saves member checkbox state online
-- Each checked member adds ₱700
-- Manual Money In remains separate
-- Expenses / Money Out
-- Remaining balance = carryover + checked members + money in - expenses
-- 15-day cycle auto check
-- New cycle keeps sobra/carryover
-- Password asked once per browser tab/session
-- Password: Master
+Upload these files to your GitHub Pages repo:
+- index.html
+- app.js
+- styles.css
+- firestore.rules only goes to Firebase Rules, not GitHub
 
-Setup:
-1. Upload all files to GitHub Pages / Netlify.
-2. In Firebase, enable Firestore Database.
-3. Open Firestore Rules.
-4. Paste the contents of firestore.rules and Publish.
-5. Open the website on phone and laptop.
-6. Make an edit and wait for the status to show Saved online / Online sync active.
+Important Firebase setup:
+1. Open Firebase Console > tee-shirt-2 project.
+2. Go to Firestore Database.
+3. Create database if not created yet.
+4. Go to Rules.
+5. Paste firestore.rules content.
+6. Publish.
+7. Hard refresh your GitHub Pages site: Ctrl + Shift + R.
 
-If it still does not sync:
-- Hard refresh browser.
-- Make sure Firestore Database is created.
-- Make sure rules are published.
-- Open browser console and check for Firebase errors.
+If the badge says "Synced online", phone and laptop will sync.
+If the badge says "Local only", Firestore is not enabled, rules are not published, or the browser/network blocked Firebase.
+
+Admin password: Master
