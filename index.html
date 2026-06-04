@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Apartment Amotan Pro</title>
+  <title>Apartment Amotan Tracker</title>
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#7c2d12">
   <link rel="stylesheet" href="styles.css" />
@@ -15,8 +15,8 @@
     <header class="hero">
       <div>
         <p class="eyebrow">Apartment Dinner Budget</p>
-        <h1>Amotan Tracker Pro</h1>
-        <p>Realtime amotan, expenses, reports, announcements, and member status.</p>
+        <h1>Amotan Tracker</h1>
+        <p>Realtime apartment budgeting, amotan, expenses, reports, and member status.</p>
       </div>
       <div class="hero-actions">
         <span id="syncBadge" class="badge warn">Connecting...</span>
@@ -34,10 +34,11 @@
 
     <section class="toolbar card">
       <div>
-        <strong>Admin Controls</strong>
-        <p>Default password: Master. Password is asked once per session.</p>
+        <strong>Controls</strong>
+        <p id="mergeStatus">Old saved data will be detected and merged automatically when available.</p>
       </div>
       <div class="toolbar-actions">
+        <button id="recoverBtn">Recover Old Data</button>
         <button id="resetBtn" class="danger">Close 15-Day Cycle</button>
         <button id="exportBtn">Export CSV</button>
       </div>

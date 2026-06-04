@@ -1,25 +1,20 @@
-Apartment Amotan Tracker Pro
+Apartment Amotan Tracker - Debugged + Data Merge
 
-Upload all files to GitHub Pages/Netlify.
+What is fixed:
+- Removed visible password hint/message from the UI.
+- Keeps one-time password unlock per browser session.
+- Realtime Firebase sync for phone + laptop.
+- Adds Recover Old Data button.
+- Auto-detects old local saved data from previous versions and merges it.
+- Member checkbox = ₱700 paid amotan.
+- Money In remains separate.
+- Expenses, carryover/sobra, reports, chart, announcements, dark mode, and CSV export remain included.
 
-Firebase:
-1. Go to Firebase Console > Firestore Database.
-2. Create database if not enabled.
-3. Open Rules and paste firestore.rules.
-4. Publish.
-5. Open app on laptop and phone. Badge should show Online sync.
+Important:
+1. Upload all files to GitHub Pages.
+2. Publish firestore.rules in Firebase Firestore Rules.
+3. Hard refresh browser: Ctrl + Shift + R.
+4. Open the app on the device/browser that contains your old data and click Recover Old Data.
+5. After it syncs online, open it on your other device.
 
-Password: Master
-It asks once per browser session. Use Lock to require password again.
-
-Features:
-- Realtime Firebase sync
-- Member profile emoji/photo URL
-- ₱700 paid checkbox per member
-- Money In / Expenses
-- Sobra carryover on 15-day cycle close
-- Reports and chart
-- CSV export
-- Apartment announcements/chat
-- Dark mode
-- PWA install support
+If the top badge says Local only, Firestore is not connected or rules are blocking access.
