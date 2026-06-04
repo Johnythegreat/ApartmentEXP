@@ -1,21 +1,25 @@
-Apartment Amotan Tracker - Realtime Firebase Version
+Apartment Amotan Tracker Pro
 
-Upload these files to your GitHub Pages repo:
-- index.html
-- app.js
-- styles.css
-- firestore.rules only goes to Firebase Rules, not GitHub
+Upload all files to GitHub Pages/Netlify.
 
-Important Firebase setup:
-1. Open Firebase Console > tee-shirt-2 project.
-2. Go to Firestore Database.
-3. Create database if not created yet.
-4. Go to Rules.
-5. Paste firestore.rules content.
-6. Publish.
-7. Hard refresh your GitHub Pages site: Ctrl + Shift + R.
+Firebase:
+1. Go to Firebase Console > Firestore Database.
+2. Create database if not enabled.
+3. Open Rules and paste firestore.rules.
+4. Publish.
+5. Open app on laptop and phone. Badge should show Online sync.
 
-If the badge says "Synced online", phone and laptop will sync.
-If the badge says "Local only", Firestore is not enabled, rules are not published, or the browser/network blocked Firebase.
+Password: Master
+It asks once per browser session. Use Lock to require password again.
 
-Admin password: Master
+Features:
+- Realtime Firebase sync
+- Member profile emoji/photo URL
+- ₱700 paid checkbox per member
+- Money In / Expenses
+- Sobra carryover on 15-day cycle close
+- Reports and chart
+- CSV export
+- Apartment announcements/chat
+- Dark mode
+- PWA install support
