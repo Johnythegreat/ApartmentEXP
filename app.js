@@ -279,19 +279,34 @@ function bind(){
   $("expenseForm").onsubmit=e=>{ e.preventDefault(); if(!requireAdmin())return; state.expenses.push({id:uid(), amount:Number($("expenseAmount").value), category:$("expenseCategory").value, description:$("expenseDescription").value.trim(), date:$("expenseDate").value||today()}); e.target.reset(); $("expenseDate").value=today(); render(); saveCloud(); };
   $("chatForm").onsubmit=e=>{ e.preventDefault(); if(!requireAdmin())return; const msg=$("chatMessage").value.trim(); if(!msg)return; state.chat.push({id:uid(), name:$("chatName").value.trim()||"Admin", message:msg, time:Date.now()}); $("chatMessage").value=""; render(); saveCloud(); };
   document.body.addEventListener("click", e=>{
-    const btn=e.target.closest("[data-act]"); if(!btn) return;
+    const el = e.target.closest("[data-act]");
+    if(!el) return;
+
+    // IMPORTANT: do not handle member checkbox on click.
+    // Checkboxes must be handled by the change event below, otherwise the page
+    // re-renders before the checkbox can visually toggle on some browsers/mobile.
+    if(el.dataset.act === "toggleMember") return;
+
     if(!requireAdmin()) return;
-    const {act,id}=btn.dataset;
+    const {act,id}=el.dataset;
     if(act==="deleteMember") state.members=state.members.filter(x=>x.id!==id);
     if(act==="deleteIncome") state.income=state.income.filter(x=>x.id!==id);
     if(act==="deleteExpense") state.expenses=state.expenses.filter(x=>x.id!==id);
     render(); saveCloud();
   });
+
   document.body.addEventListener("change", e=>{
-    if(e.target.dataset.act!=="toggleMember") return;
-    if(!requireAdmin()){ e.target.checked=!e.target.checked; return; }
-    const m=state.members.find(x=>x.id===e.target.dataset.id); if(m){ m.paid=e.target.checked; m.paidAt=m.paid?Date.now():null; }
-    render(); saveCloud();
+    const box = e.target.closest('input[type="checkbox"][data-act="toggleMember"]');
+    if(!box) return;
+    if(!requireAdmin()){ box.checked=!box.checked; return; }
+    const m=state.members.find(x=>x.id===box.dataset.id);
+    if(m){
+      m.paid = box.checked;
+      m.paidAt = m.paid ? Date.now() : null;
+    }
+    saveLocal();
+    render();
+    saveCloud();
   });
 }
 
