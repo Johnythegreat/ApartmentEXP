@@ -351,12 +351,12 @@ async function initFirebase(){
       online = true; setBadge("Online sync", "ok");
       applyingRemote = true;
       let remote = snap.exists() ? cleanState(snap.data()) : cleanState({});
-      let merged = mergeStates(remote, state);
-      state = merged;
+      let merged = remote;
+      state = remote;
       const cycleClosed = autoCloseCycleIfNeeded();
       saveLocal(); render();
       applyingRemote = false;
-      if (!snap.exists() || cycleClosed || JSON.stringify(remote) !== JSON.stringify(merged)) saveCloud();
+      if (!snap.exists()) saveCloud();
       if (!booted) { booted = true; status("Ready. Cloud sync is active."); }
     }, err=>{
       console.error("Realtime sync error:", err);
