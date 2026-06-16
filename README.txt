@@ -18,4 +18,12 @@ Important Firebase setup:
 If the badge says "Synced online", phone and laptop will sync.
 If the badge says "Local only", Firestore is not enabled, rules are not published, or the browser/network blocked Firebase.
 
+The app now uses one simple transaction form:
+- Choose Money In or Expense.
+- Enter amount, description, and date.
+- Members are checked paid from the Members panel.
+
+For local design testing without Firebase writes, open:
+http://127.0.0.1:4173/?offline=1
+
 Admin password: Master

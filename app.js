@@ -22,7 +22,12 @@ const firebaseConfig = {
 const PASSWORD = "Master";
 const AMOTAN_AMOUNT = 700;
 const CYCLE_DAYS = 15;
-const LOCAL_KEY = "apartment-amotan-state-v4";
+const params = new URLSearchParams(window.location.search);
+const OFFLINE_MODE = params.has("offline");
+const STORAGE_SCOPE = params.get("test");
+const BASE_LOCAL_KEY = "apartment-amotan-state-v4";
+const LOCAL_KEY = STORAGE_SCOPE ? `${BASE_LOCAL_KEY}-${STORAGE_SCOPE}` : BASE_LOCAL_KEY;
+const LEGACY_LOCAL_KEYS = STORAGE_SCOPE ? [] : ["apartment-amotan-state-v3"];
 
 const $ = (id) => document.getElementById(id);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -58,7 +63,7 @@ function normalizeState(data) {
 
 function loadLocal() {
   try {
-    const raw = localStorage.getItem(LOCAL_KEY);
+    const raw = localStorage.getItem(LOCAL_KEY) || LEGACY_LOCAL_KEYS.map((key) => localStorage.getItem(key)).find(Boolean);
     return raw ? normalizeState(JSON.parse(raw)) : defaultState();
   } catch {
     return defaultState();
@@ -137,7 +142,7 @@ function scheduleSave() {
 
 async function saveCloudNow() {
   saveLocal();
-  if (!docRef || applyingRemote) return;
+  if (OFFLINE_MODE || !docRef || applyingRemote) return;
   try {
     await setDoc(docRef, { ...state, updatedAt: serverTimestamp() }, { merge: true });
     setStatus("Synced online", "online");
@@ -366,7 +371,13 @@ function bindEvents() {
 }
 
 async function initFirebase() {
+  if (OFFLINE_MODE) {
+    setStatus("Offline preview", "local");
+    return;
+  }
+
   try {
+    setStatus("Connecting...", "local");
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
     enableIndexedDbPersistence(db).catch(() => {});
@@ -405,7 +416,11 @@ async function initFirebase() {
 async function boot() {
   bindEvents();
   state = loadLocal();
+  checkAutoCycle();
   render();
+  setStatus("Local ready", "local");
+  document.body.classList.remove("is-loading");
+
   await initFirebase();
   checkAutoCycle();
   render();
