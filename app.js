@@ -22,12 +22,14 @@ const firebaseConfig = {
 const PASSWORD = "Master";
 const AMOTAN_AMOUNT = 700;
 const CYCLE_DAYS = 15;
+const ELECTRICITY_AC_CHARGE = 1350;
+const ELECTRICITY_AC_SHARE = 675;
 const params = new URLSearchParams(window.location.search);
 const OFFLINE_MODE = params.has("offline");
 const STORAGE_SCOPE = params.get("test");
-const BASE_LOCAL_KEY = "apartment-amotan-state-v4";
+const BASE_LOCAL_KEY = "apartment-amotan-state-v5";
 const LOCAL_KEY = STORAGE_SCOPE ? `${BASE_LOCAL_KEY}-${STORAGE_SCOPE}` : BASE_LOCAL_KEY;
-const LEGACY_LOCAL_KEYS = STORAGE_SCOPE ? [] : ["apartment-amotan-state-v3"];
+const LEGACY_LOCAL_KEYS = STORAGE_SCOPE ? [] : ["apartment-amotan-state-v4", "apartment-amotan-state-v3"];
 
 const $ = (id) => document.getElementById(id);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -38,10 +40,26 @@ const defaultState = () => ({
   members: [],
   income: [],
   expenses: [],
+  bills: {
+    electricity: defaultBill("Electricity Bill", "electricity"),
+    water: defaultBill("Water Bill", "water")
+  },
   carryover: 0,
   cycleStarted: todayISO(),
   updatedAt: null
 });
+
+function defaultBill(name, key) {
+  return {
+    id: key,
+    name,
+    amount: 0,
+    members: [],
+    paidMembers: [],
+    weights: {},
+    updatedAt: null
+  };
+}
 
 let state = defaultState();
 let unlocked = sessionStorage.getItem("amotUnlock") === "yes";
@@ -50,14 +68,32 @@ let saveTimer = null;
 let applyingRemote = false;
 
 function normalizeState(data) {
-  return {
+  const next = {
     ...defaultState(),
     ...(data || {}),
     members: Array.isArray(data?.members) ? data.members : [],
     income: Array.isArray(data?.income) ? data.income : [],
     expenses: Array.isArray(data?.expenses) ? data.expenses : [],
+    bills: {
+      electricity: normalizeBill(data?.bills?.electricity, "Electricity Bill", "electricity"),
+      water: normalizeBill(data?.bills?.water, "Water Bill", "water")
+    },
     carryover: Number(data?.carryover || 0),
     cycleStarted: data?.cycleStarted || todayISO()
+  };
+  syncBillMembers(next);
+  return next;
+}
+
+function normalizeBill(bill, name, key) {
+  return {
+    ...defaultBill(name, key),
+    ...(bill || {}),
+    amount: Number(bill?.amount || 0),
+    members: Array.isArray(bill?.members) ? bill.members : [],
+    paidMembers: Array.isArray(bill?.paidMembers) ? bill.paidMembers : [],
+    weights: bill?.weights && typeof bill.weights === "object" ? bill.weights : {},
+    airconMembers: Array.isArray(bill?.airconMembers) ? bill.airconMembers.slice(0, 2) : []
   };
 }
 
@@ -95,23 +131,6 @@ function daysBetween(startISO, endISO) {
   const start = new Date(`${startISO}T00:00:00`);
   const end = new Date(`${endISO}T00:00:00`);
   return Math.floor((end - start) / 86400000);
-}
-
-function calcTotals() {
-  const paidMembers = state.members.filter((m) => m.paid).length;
-  const amotanTotal = paidMembers * AMOTAN_AMOUNT;
-  const incomeTotal = state.income.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const expenseTotal = state.expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const remaining = Number(state.carryover || 0) + amotanTotal + incomeTotal - expenseTotal;
-  return { paidMembers, amotanTotal, incomeTotal, expenseTotal, remaining };
-}
-
-function summaryText(totals) {
-  const parts = [];
-  if (totals.amotanTotal) parts.push(`${money(totals.amotanTotal)} amotan`);
-  if (totals.incomeTotal) parts.push(`${money(totals.incomeTotal)} money in`);
-  if (totals.expenseTotal) parts.push(`${money(totals.expenseTotal)} spent`);
-  return parts.length ? parts.join(" + ") : "No payments or expenses yet.";
 }
 
 function escapeHTML(text = "") {
@@ -154,6 +173,120 @@ async function saveCloudNow() {
   }
 }
 
+function syncBillMembers(nextState = state) {
+  const memberIds = new Set(nextState.members.map((member) => member.id));
+  for (const bill of [nextState.bills.electricity, nextState.bills.water]) {
+    bill.members = bill.members.filter((id) => memberIds.has(id));
+    bill.paidMembers = bill.paidMembers.filter((id) => memberIds.has(id) && bill.members.includes(id));
+  }
+  ensureAirconMembers(nextState);
+}
+
+function calcTotals() {
+  const paidMembers = state.members.filter((m) => m.paid).length;
+  const amotanTotal = paidMembers * AMOTAN_AMOUNT;
+  const incomeTotal = state.income.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const expenseTotal = state.expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const remaining = Number(state.carryover || 0) + amotanTotal + incomeTotal - expenseTotal;
+  return { paidMembers, amotanTotal, incomeTotal, expenseTotal, remaining };
+}
+
+function summaryText(totals) {
+  const parts = [];
+  if (totals.amotanTotal) parts.push(`${money(totals.amotanTotal)} amotan`);
+  if (totals.incomeTotal) parts.push(`${money(totals.incomeTotal)} money in`);
+  if (totals.expenseTotal) parts.push(`${money(totals.expenseTotal)} spent`);
+  return parts.length ? parts.join(" + ") : "No payments or expenses yet.";
+}
+
+function getBillData(key) {
+  const bill = state.bills[key];
+  const members = bill.members
+    .map((id) => state.members.find((member) => member.id === id))
+    .filter(Boolean);
+  const paidMembers = members.filter((member) => bill.paidMembers.includes(member.id));
+  const unpaidMembers = members.filter((member) => !bill.paidMembers.includes(member.id));
+  const amount = Number(bill.amount || 0);
+
+  if (!members.length) {
+    return {
+      bill,
+      members,
+      paidMembers,
+      unpaidMembers,
+      totalMembers: 0,
+      share: 0,
+      airconShare: 0,
+      sharedBillPortion: 0,
+      collected: 0,
+      outstanding: 0,
+      rows: []
+    };
+  }
+
+  if (key === "electricity") {
+    const totalMembers = members.length;
+    const sharedBillPortion = Math.max(0, amount - ELECTRICITY_AC_CHARGE);
+    const share = sharedBillPortion / totalMembers;
+    const activeAirconMembers = new Set((bill.airconMembers || []).slice(0, 2));
+    const rows = members.map((member) => {
+      const airconCharge = activeAirconMembers.has(member.id) ? ELECTRICITY_AC_SHARE : 0;
+      const totalDue = share + airconCharge;
+      const paid = bill.paidMembers.includes(member.id);
+      return {
+        id: member.id,
+        name: member.name,
+        share,
+        airconCharge,
+        totalDue,
+        paid
+      };
+    });
+    const collected = rows.filter((row) => row.paid).reduce((sum, row) => sum + row.totalDue, 0);
+    return {
+      bill,
+      members,
+      paidMembers,
+      unpaidMembers,
+      totalMembers,
+      share,
+      airconShare: ELECTRICITY_AC_CHARGE,
+      sharedBillPortion,
+      collected,
+      outstanding: Math.max(0, rows.reduce((sum, row) => sum + row.totalDue, 0) - collected),
+      rows
+    };
+  }
+
+  const totalMembers = members.length;
+  const share = amount / totalMembers;
+  const rows = members.map((member) => {
+    const paid = bill.paidMembers.includes(member.id);
+    return {
+      id: member.id,
+      name: member.name,
+      share,
+      airconCharge: 0,
+      totalDue: share,
+      paid
+    };
+  });
+  const collected = rows.filter((row) => row.paid).reduce((sum, row) => sum + row.totalDue, 0);
+  return {
+    bill,
+    members,
+    paidMembers,
+    unpaidMembers,
+    totalMembers,
+    share,
+    airconShare: 0,
+    sharedBillPortion: amount,
+    collected,
+    outstanding: Math.max(0, amount - collected),
+    rows
+  };
+}
+
 function renderMembers() {
   const box = $("membersList");
   if (!state.members.length) {
@@ -186,7 +319,6 @@ function renderTransactions() {
     return;
   }
 
-  const totals = calcTotals();
   $("activityTotals").textContent = `${state.income.length} money in, ${state.expenses.length} expenses.`;
   list.innerHTML = items.map((item) => `
     <div class="transaction-row ${item.kind}">
@@ -213,13 +345,6 @@ function renderSummary() {
   const left = Math.max(0, CYCLE_DAYS - elapsed);
   $("cycleLeft").textContent = `${left} day${left === 1 ? "" : "s"} left`;
   $("summaryBreakdown").textContent = summaryText(totals);
-}
-
-function render() {
-  renderSummary();
-  renderMembers();
-  renderTransactions();
-  setEditState();
 }
 
 function endCycle() {
@@ -252,8 +377,40 @@ function checkAutoCycle() {
   }
 }
 
+function updateBillMemberSelection(billKey, memberId, checked) {
+  const bill = state.bills[billKey];
+  if (checked) {
+    if (!bill.members.includes(memberId)) bill.members.push(memberId);
+  } else {
+    bill.members = bill.members.filter((id) => id !== memberId);
+    bill.paidMembers = bill.paidMembers.filter((id) => id !== memberId);
+    if (billKey === "electricity" && Array.isArray(bill.airconMembers)) {
+      bill.airconMembers = bill.airconMembers.filter((id) => id !== memberId);
+    }
+  }
+}
+
+function ensureAirconMembers(targetState = state) {
+  const bill = targetState.bills.electricity;
+  if (!Array.isArray(bill.airconMembers)) bill.airconMembers = [];
+  bill.airconMembers = bill.airconMembers.filter((id) => bill.members.includes(id));
+  const selected = bill.airconMembers;
+  if (selected.length > 2) bill.airconMembers = selected.slice(0, 2);
+}
+
+function updateBillPaidStatus(billKey, memberId, checked) {
+  const bill = state.bills[billKey];
+  if (checked) {
+    if (!bill.paidMembers.includes(memberId)) bill.paidMembers.push(memberId);
+  } else {
+    bill.paidMembers = bill.paidMembers.filter((id) => id !== memberId);
+  }
+}
+
 function bindEvents() {
   $("transactionDate").value = todayISO();
+  $("electricityDate").value = todayISO();
+  $("waterDate").value = todayISO();
 
   $("unlockBtn").addEventListener("click", () => {
     if (requireUnlock()) render();
@@ -297,7 +454,13 @@ function bindEvents() {
     const btn = e.target.closest(".delete-member");
     if (!btn) return;
     if (!requireUnlock()) return;
-    state.members = state.members.filter((m) => m.id !== btn.dataset.id);
+    const memberId = btn.dataset.id;
+    state.members = state.members.filter((m) => m.id !== memberId);
+    for (const bill of [state.bills.electricity, state.bills.water]) {
+      bill.members = bill.members.filter((id) => id !== memberId);
+      bill.paidMembers = bill.paidMembers.filter((id) => id !== memberId);
+      if (bill.airconMembers) bill.airconMembers = bill.airconMembers.filter((id) => id !== memberId);
+    }
     render();
     scheduleSave();
   });
@@ -362,12 +525,200 @@ function bindEvents() {
 
   $("clearAllBtn").addEventListener("click", () => {
     if (!requireUnlock()) return;
-    if (confirm("Clear everything: members, money in, expenses, and carryover?")) {
+    if (confirm("Clear everything: members, money in, expenses, bills, and carryover?")) {
       state = defaultState();
       render();
       scheduleSave();
     }
   });
+
+  $("electricityAmount").addEventListener("input", () => {
+    if (!requireUnlock()) {
+      render();
+      return;
+    }
+    state.bills.electricity.amount = Number($("electricityAmount").value || 0);
+    renderBillInputs();
+    renderBillDashboard();
+    scheduleSave();
+  });
+
+  $("waterAmount").addEventListener("input", () => {
+    if (!requireUnlock()) {
+      render();
+      return;
+    }
+    state.bills.water.amount = Number($("waterAmount").value || 0);
+    renderBillInputs();
+    renderBillDashboard();
+    scheduleSave();
+  });
+
+  for (const key of ["electricity", "water"]) {
+    const memberList = $(`${key}Members`);
+    const tableBody = $(`${key}MembersBody`);
+    const unpaidList = $(`${key}UnpaidList`);
+
+    memberList.addEventListener("change", (e) => {
+      if (!e.target.classList.contains(`${key}-member`)) return;
+      if (!requireUnlock()) {
+        e.target.checked = !e.target.checked;
+        return;
+      }
+      updateBillMemberSelection(key, e.target.dataset.id, e.target.checked);
+      if (key === "electricity") ensureAirconMembers();
+      render();
+      scheduleSave();
+    });
+
+    memberList.addEventListener("click", (e) => {
+      const btn = e.target.closest(".aircon-toggle");
+      if (!btn || key !== "electricity") return;
+      if (!requireUnlock()) return;
+      const bill = state.bills.electricity;
+      const memberId = btn.dataset.id;
+      if (!bill.airconMembers) bill.airconMembers = [];
+      if (bill.airconMembers.includes(memberId)) {
+        bill.airconMembers = bill.airconMembers.filter((id) => id !== memberId);
+      } else if (bill.airconMembers.length < 2) {
+        bill.airconMembers.push(memberId);
+      }
+      render();
+      scheduleSave();
+    });
+
+    tableBody.addEventListener("change", (e) => {
+      if (!e.target.classList.contains(`${key}-paid`)) return;
+      if (!requireUnlock()) {
+        e.target.checked = !e.target.checked;
+        return;
+      }
+      updateBillPaidStatus(key, e.target.dataset.id, e.target.checked);
+      render();
+      scheduleSave();
+    });
+
+    unpaidList.addEventListener("click", (e) => {
+      const btn = e.target.closest(".mark-paid");
+      if (!btn) return;
+      if (!requireUnlock()) return;
+      updateBillPaidStatus(key, btn.dataset.id, true);
+      render();
+      scheduleSave();
+    });
+  }
+}
+
+function renderBillInputs() {
+  for (const key of ["electricity", "water"]) {
+    const bill = state.bills[key];
+    const members = state.members;
+    const list = $(`${key}Members`);
+    const summary = getBillData(key);
+    const acMembers = new Set(bill.airconMembers || []);
+    const amountInput = $(`${key}Amount`);
+    const summaryEl = $(`${key}Summary`);
+    const totalsEl = $(`${key}Totals`);
+
+    if (amountInput && document.activeElement !== amountInput) amountInput.value = bill.amount || "";
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <div><strong>${money(summary.bill.amount)}</strong><span>Total Bill Amount</span></div>
+        <div><strong>${summary.totalMembers}</strong><span>Number of Members</span></div>
+        <div><strong>${money(summary.share)}</strong><span>Amount Per Member</span></div>
+        <div><strong>${money(summary.collected)}</strong><span>Total Collected</span></div>
+        <div><strong>${money(summary.outstanding)}</strong><span>Remaining Balance</span></div>
+      `;
+    }
+    if (totalsEl) {
+      totalsEl.innerHTML = key === "electricity"
+        ? `
+          <div><strong>${money(summary.bill.amount)}</strong><span>Original Electricity Bill</span></div>
+          <div><strong>${money(ELECTRICITY_AC_CHARGE)}</strong><span>Aircon Charges Total</span></div>
+          <div><strong>${money(summary.sharedBillPortion)}</strong><span>Shared Bill Portion</span></div>
+          <div><strong>${money(summary.collected)}</strong><span>Total Collected</span></div>
+          <div><strong>${money(summary.outstanding)}</strong><span>Remaining Balance</span></div>
+        `
+        : `
+          <div><strong>${money(summary.bill.amount)}</strong><span>Total Water Bill</span></div>
+          <div><strong>${money(summary.share)}</strong><span>Amount Per Member</span></div>
+          <div><strong>${money(summary.collected)}</strong><span>Total Collected</span></div>
+          <div><strong>${money(summary.outstanding)}</strong><span>Remaining Balance</span></div>
+        `;
+    }
+
+    list.innerHTML = members.length
+      ? members.map((member) => `
+        <div class="bill-member-row">
+          <label>
+            <input type="checkbox" class="${key}-member" data-id="${member.id}" ${bill.members.includes(member.id) ? "checked" : ""} />
+            <span>${escapeHTML(member.name)}</span>
+          </label>
+          ${key === "electricity" ? `
+            <button type="button" class="mini aircon-toggle ${acMembers.has(member.id) ? "active" : ""}" data-id="${member.id}" ${!bill.members.includes(member.id) ? "disabled" : ""}>${acMembers.has(member.id) ? "Aircon User" : "Set Aircon"}</button>
+          ` : `<span class="bill-badge">${bill.paidMembers.includes(member.id) ? "Paid" : "Unpaid"}</span>`}
+        </div>
+      `).join("")
+      : `<p class="empty">Add household members first.</p>`;
+
+    const tableBody = $(`${key}MembersBody`);
+    if (tableBody) {
+      tableBody.innerHTML = summary.rows.length
+        ? summary.rows.map((row) => `
+          <tr>
+            <td>${escapeHTML(row.name)}</td>
+            <td>${money(row.share)}</td>
+            <td>${money(row.airconCharge)}</td>
+            <td>${money(row.totalDue)}</td>
+            <td>
+              <label class="paid-toggle ${row.paid ? "is-paid" : "is-unpaid"}">
+                <input type="checkbox" class="${key}-paid" data-id="${row.id}" ${row.paid ? "checked" : ""} />
+                <span>${row.paid ? "Paid" : "Unpaid"}</span>
+              </label>
+            </td>
+          </tr>
+        `).join("")
+        : `<tr><td colspan="5" class="empty-row">Select members for this bill.</td></tr>`;
+    }
+
+    const paidList = $(`${key}PaidList`);
+    const unpaidList = $(`${key}UnpaidList`);
+    if (paidList) {
+      paidList.innerHTML = summary.paidMembers.length
+        ? summary.paidMembers.map((member) => `<li class="paid-item">${escapeHTML(member.name)} <span>${money(summary.rows.find((row) => row.id === member.id)?.totalDue || 0)}</span></li>`).join("")
+        : `<li class="empty-row">No paid members yet.</li>`;
+    }
+    if (unpaidList) {
+      unpaidList.innerHTML = summary.unpaidMembers.length
+        ? summary.unpaidMembers.map((member) => `
+          <li class="unpaid-item">
+            <span>${escapeHTML(member.name)} <strong>${money(summary.rows.find((row) => row.id === member.id)?.totalDue || 0)}</strong></span>
+            <button class="mini mark-paid" data-id="${member.id}" type="button">Mark Paid</button>
+          </li>
+        `).join("")
+        : `<li class="empty-row">All members paid.</li>`;
+    }
+  }
+}
+
+function renderBillDashboard() {
+  const electricity = getBillData("electricity");
+  const water = getBillData("water");
+  const totalCollected = electricity.collected + water.collected;
+  const totalOutstanding = electricity.outstanding + water.outstanding;
+  $("billElectricityTotal").textContent = money(electricity.bill.amount);
+  $("billWaterTotal").textContent = money(water.bill.amount);
+  $("billCollectedTotal").textContent = money(totalCollected);
+  $("billOutstandingTotal").textContent = money(totalOutstanding);
+}
+
+function render() {
+  renderSummary();
+  renderMembers();
+  renderTransactions();
+  renderBillInputs();
+  renderBillDashboard();
+  setEditState();
 }
 
 async function initFirebase() {

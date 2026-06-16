@@ -49,6 +49,29 @@
 
     <section id="notice" class="notice" hidden></section>
 
+    <section class="bill-dashboard" aria-label="Utility bill summary">
+      <article class="summary-card">
+        <span>Electricity Bill Total</span>
+        <strong id="billElectricityTotal">₱0.00</strong>
+        <small>Includes selected aircon users</small>
+      </article>
+      <article class="summary-card">
+        <span>Water Bill Total</span>
+        <strong id="billWaterTotal">₱0.00</strong>
+        <small>Split evenly by selected members</small>
+      </article>
+      <article class="summary-card">
+        <span>Total Collected</span>
+        <strong id="billCollectedTotal">₱0.00</strong>
+        <small>Paid utility bill shares</small>
+      </article>
+      <article class="summary-card">
+        <span>Outstanding Balance</span>
+        <strong id="billOutstandingTotal">₱0.00</strong>
+        <small>Unpaid utility bill shares</small>
+      </article>
+    </section>
+
     <section class="workspace-grid">
       <section class="panel members-panel">
         <div class="panel-heading">
@@ -99,6 +122,116 @@
           </div>
         </div>
         <div id="transactionsList" class="transactions-list"></div>
+      </section>
+    </section>
+
+    <section class="utility-grid">
+      <section class="panel bill-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Electricity Bill</h2>
+            <p>Aircon charge is ₱1,350, split ₱675 each between two selected aircon users.</p>
+          </div>
+        </div>
+        <div class="bill-controls">
+          <label>
+            <span>Total Bill Amount</span>
+            <input id="electricityAmount" type="number" min="0" step="0.01" placeholder="0.00" />
+          </label>
+          <label>
+            <span>Bill Date</span>
+            <input id="electricityDate" type="date" />
+          </label>
+        </div>
+        <div class="bill-stat-grid" id="electricitySummary"></div>
+        <div class="bill-member-picker">
+          <div class="panel-heading compact">
+            <div>
+              <h2>Household Members</h2>
+              <p>Select members included in the bill, then choose up to two aircon users.</p>
+            </div>
+          </div>
+          <div id="electricityMembers" class="bill-member-list"></div>
+        </div>
+        <div class="bill-stat-grid detail-grid" id="electricityTotals"></div>
+        <div class="bill-table-wrap">
+          <table class="bill-table">
+            <thead>
+              <tr>
+                <th>Member Name</th>
+                <th>Shared Bill</th>
+                <th>Aircon Charge</th>
+                <th>Total Due</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="electricityMembersBody"></tbody>
+          </table>
+        </div>
+        <div class="bill-lists">
+          <div>
+            <h3>Paid Members</h3>
+            <ul id="electricityPaidList"></ul>
+          </div>
+          <div>
+            <h3>Unpaid Members</h3>
+            <ul id="electricityUnpaidList"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel bill-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Water Bill</h2>
+            <p>Split equally across every selected household member.</p>
+          </div>
+        </div>
+        <div class="bill-controls">
+          <label>
+            <span>Total Bill Amount</span>
+            <input id="waterAmount" type="number" min="0" step="0.01" placeholder="0.00" />
+          </label>
+          <label>
+            <span>Bill Date</span>
+            <input id="waterDate" type="date" />
+          </label>
+        </div>
+        <div class="bill-stat-grid" id="waterSummary"></div>
+        <div class="bill-member-picker">
+          <div class="panel-heading compact">
+            <div>
+              <h2>Household Members</h2>
+              <p>Select members included in the water bill.</p>
+            </div>
+          </div>
+          <div id="waterMembers" class="bill-member-list"></div>
+        </div>
+        <div class="bill-stat-grid detail-grid" id="waterTotals"></div>
+        <div class="bill-table-wrap">
+          <table class="bill-table">
+            <thead>
+              <tr>
+                <th>Member Name</th>
+                <th>Shared Bill</th>
+                <th>Special Charge</th>
+                <th>Total Due</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="waterMembersBody"></tbody>
+          </table>
+        </div>
+        <div class="bill-lists">
+          <div>
+            <h3>Paid Members</h3>
+            <ul id="waterPaidList"></ul>
+          </div>
+          <div>
+            <h3>Unpaid Members</h3>
+            <ul id="waterUnpaidList"></ul>
+          </div>
+        </div>
       </section>
     </section>
 
