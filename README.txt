@@ -1,20 +1,21 @@
-Apartment Amotan Tracker - Debugged + Data Merge
+Apartment Amotan Tracker - Realtime Firebase Version
 
-What is fixed:
-- Removed visible password hint/message from the UI.
-- Keeps one-time password unlock per browser session.
-- Realtime Firebase sync for phone + laptop.
-- Adds Recover Old Data button.
-- Auto-detects old local saved data from previous versions and merges it.
-- Member checkbox = ₱700 paid amotan.
-- Money In remains separate.
-- Expenses, carryover/sobra, reports, chart, announcements, dark mode, and CSV export remain included.
+Upload these files to your GitHub Pages repo:
+- index.html
+- app.js
+- styles.css
+- firestore.rules only goes to Firebase Rules, not GitHub
 
-Important:
-1. Upload all files to GitHub Pages.
-2. Publish firestore.rules in Firebase Firestore Rules.
-3. Hard refresh browser: Ctrl + Shift + R.
-4. Open the app on the device/browser that contains your old data and click Recover Old Data.
-5. After it syncs online, open it on your other device.
+Important Firebase setup:
+1. Open Firebase Console > tee-shirt-2 project.
+2. Go to Firestore Database.
+3. Create database if not created yet.
+4. Go to Rules.
+5. Paste firestore.rules content.
+6. Publish.
+7. Hard refresh your GitHub Pages site: Ctrl + Shift + R.
 
-If the top badge says Local only, Firestore is not connected or rules are blocking access.
+If the badge says "Synced online", phone and laptop will sync.
+If the badge says "Local only", Firestore is not enabled, rules are not published, or the browser/network blocked Firebase.
+
+Admin password: Master

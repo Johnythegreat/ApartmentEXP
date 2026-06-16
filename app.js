@@ -1,5 +1,13 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, onSnapshot, setDoc, serverTimestamp, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  onSnapshot,
+  enableIndexedDbPersistence,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDYE1h4hmU8ppSa18Jz-veC6GADBgsIa3g",
@@ -14,369 +22,393 @@ const firebaseConfig = {
 const PASSWORD = "Master";
 const AMOTAN_AMOUNT = 700;
 const CYCLE_DAYS = 15;
-const LOCAL_KEY = "apartment-amotan-pro-state-v2";
-const OLD_KEYS = ["apartment-amotan-pro-state-v1", "apartment-amotan-state-v3"];
-const MIGRATION_FLAG = "apartment-amotan-old-data-merged-v2";
-const SESSION_KEY = "apartment-amotan-unlocked";
-const $ = (id) => document.getElementById(id);
-const today = () => new Date().toISOString().slice(0, 10);
-const money = (n) => "₱" + Number(n || 0).toLocaleString("en-PH", {minimumFractionDigits:2, maximumFractionDigits:2});
-let db, ref, chart;
-let online = false;
-let applyingRemote = false;
-let booted = false;
+const LOCAL_KEY = "apartment-amotan-state-v4";
 
-let state = cleanState({
-  members: [], income: [], expenses: [], chat: [], carryover: 0, cycleStart: today(), dark: false, updatedAt: null
+const $ = (id) => document.getElementById(id);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const money = (value) => `₱${Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const defaultState = () => ({
+  members: [],
+  income: [],
+  expenses: [],
+  carryover: 0,
+  cycleStarted: todayISO(),
+  updatedAt: null
 });
 
-function uid(){
-  return (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
+let state = defaultState();
+let unlocked = sessionStorage.getItem("amotUnlock") === "yes";
+let docRef = null;
+let saveTimer = null;
+let applyingRemote = false;
+
+function normalizeState(data) {
+  return {
+    ...defaultState(),
+    ...(data || {}),
+    members: Array.isArray(data?.members) ? data.members : [],
+    income: Array.isArray(data?.income) ? data.income : [],
+    expenses: Array.isArray(data?.expenses) ? data.expenses : [],
+    carryover: Number(data?.carryover || 0),
+    cycleStarted: data?.cycleStarted || todayISO()
+  };
 }
 
-function defaultMembers(){
-  return ["Christian John", "Mike"].map((name, i) => ({id: uid(), name, photo: "🍽️", paid: false, paidAt: null, order: i}));
-}
-
-function cleanState(input = {}){
-  const s = {members: [], income: [], expenses: [], chat: [], carryover: 0, cycleStart: today(), dark: false, updatedAt: null, ...input};
-  s.members = Array.isArray(s.members) ? s.members.map((m, i) => ({
-    id: String(m.id || uid()),
-    name: String(m.name || m.memberName || "Member").trim() || "Member",
-    photo: String(m.photo || m.avatar || "🍽️"),
-    paid: !!m.paid,
-    paidAt: m.paidAt || null,
-    order: Number.isFinite(Number(m.order)) ? Number(m.order) : i
-  })) : [];
-  s.income = Array.isArray(s.income) ? s.income.map(x => ({
-    id: String(x.id || uid()),
-    amount: Number(x.amount || 0),
-    description: String(x.description || x.source || "Money in"),
-    date: x.date || today()
-  })).filter(x => x.amount > 0) : [];
-  s.expenses = Array.isArray(s.expenses) ? s.expenses.map(x => ({
-    id: String(x.id || uid()),
-    amount: Number(x.amount || 0),
-    category: String(x.category || "Other"),
-    description: String(x.description || "Expense"),
-    date: x.date || today()
-  })).filter(x => x.amount > 0) : [];
-  s.chat = Array.isArray(s.chat) ? s.chat.map(c => ({
-    id: String(c.id || uid()),
-    name: String(c.name || "Admin"),
-    message: String(c.message || ""),
-    time: Number(c.time || Date.now())
-  })).filter(c => c.message.trim()) : [];
-  s.carryover = Number(s.carryover || 0);
-  s.cycleStart = s.cycleStart || today();
-  s.dark = !!s.dark;
-  return s;
-}
-
-function readJsonKey(key){
-  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch { return null; }
-}
-
-function loadLocal(){
-  return readJsonKey(LOCAL_KEY) || readJsonKey("apartment-amotan-pro-state-v1") || readJsonKey("apartment-amotan-state-v3") || null;
-}
-
-function saveLocal(){
-  localStorage.setItem(LOCAL_KEY, JSON.stringify({...state, localSavedAt: Date.now()}));
-}
-
-function oldStandaloneData(){
-  const bundle = {members: [], income: [], expenses: [], carryover: 0};
-  const members = readJsonKey("apartment-budget-members");
-  if (Array.isArray(members)) bundle.members = members;
-  const income = readJsonKey("income-tracker-income");
-  if (Array.isArray(income)) bundle.income = income;
-  const expenses = readJsonKey("expenses");
-  if (Array.isArray(expenses)) bundle.expenses = expenses;
-  return bundle;
-}
-
-function collectOldData(){
-  let merged = cleanState({});
-  [...OLD_KEYS].forEach(k => {
-    const data = readJsonKey(k);
-    if (data) merged = mergeStates(merged, cleanState(data));
-  });
-  const standalone = cleanState(oldStandaloneData());
-  merged = mergeStates(merged, standalone);
-  return merged;
-}
-
-function keyMember(m){ return (m.name || "").trim().toLowerCase(); }
-function keyEntry(x){ return [x.date, x.description, Number(x.amount || 0)].join("|").toLowerCase(); }
-
-function mergeStates(base, extra){
-  const out = cleanState(base);
-  const e = cleanState(extra);
-  const memberMap = new Map(out.members.map(m => [keyMember(m), m]));
-  e.members.forEach(m => {
-    const k = keyMember(m);
-    if (!k) return;
-    if (memberMap.has(k)) Object.assign(memberMap.get(k), {...m, paid: memberMap.get(k).paid || m.paid, paidAt: memberMap.get(k).paidAt || m.paidAt});
-    else { out.members.push(m); memberMap.set(k, m); }
-  });
-  const incomeSet = new Set(out.income.map(keyEntry));
-  e.income.forEach(i => { const k = keyEntry(i); if (!incomeSet.has(k)) { out.income.push(i); incomeSet.add(k); } });
-  const expenseSet = new Set(out.expenses.map(keyEntry));
-  e.expenses.forEach(x => { const k = keyEntry(x); if (!expenseSet.has(k)) { out.expenses.push(x); expenseSet.add(k); } });
-  const chatSet = new Set(out.chat.map(c => `${c.time}|${c.name}|${c.message}`));
-  e.chat.forEach(c => { const k = `${c.time}|${c.name}|${c.message}`; if (!chatSet.has(k)) { out.chat.push(c); chatSet.add(k); } });
-  out.carryover = Math.max(Number(out.carryover || 0), Number(e.carryover || 0));
-  if (!out.cycleStart || out.cycleStart === today()) out.cycleStart = e.cycleStart || out.cycleStart;
-  out.dark = out.dark || e.dark;
-  return cleanState(out);
-}
-
-function hasRealData(s){
-  return (s.members && s.members.length) || (s.income && s.income.length) || (s.expenses && s.expenses.length) || Number(s.carryover || 0) > 0;
-}
-
-async function saveCloud(){
-  saveLocal();
-  if (!online || !ref || applyingRemote) return;
+function loadLocal() {
   try {
-    await setDoc(ref, {...state, updatedAt: serverTimestamp()}, {merge:true});
-    setBadge("Online sync", "ok");
-  } catch(e) {
-    console.error("Cloud save failed:", e);
-    setBadge("Local only", "warn");
+    const raw = localStorage.getItem(LOCAL_KEY);
+    return raw ? normalizeState(JSON.parse(raw)) : defaultState();
+  } catch {
+    return defaultState();
   }
 }
 
-function setBadge(text, cls){
-  const b = $("syncBadge");
-  if (!b) return;
-  b.textContent = text;
-  b.className = "badge " + cls;
+function saveLocal() {
+  localStorage.setItem(LOCAL_KEY, JSON.stringify({ ...state, updatedAt: Date.now() }));
 }
 
-function status(text){
-  const el = $("mergeStatus");
-  if (el) el.textContent = text;
+function setStatus(text, mode) {
+  const el = $("syncStatus");
+  el.textContent = text;
+  el.className = `status ${mode}`;
 }
 
-function requireAdmin(){
-  if (sessionStorage.getItem(SESSION_KEY) === "yes") return true;
-  const pass = prompt("Password:");
-  if (pass === PASSWORD){ sessionStorage.setItem(SESSION_KEY,"yes"); return true; }
-  if (pass !== null) alert("Incorrect password.");
+function showNotice(text = "", hidden = true) {
+  const box = $("notice");
+  box.hidden = hidden;
+  box.textContent = text;
+}
+
+function setEditState() {
+  $("editState").textContent = unlocked ? "Unlocked" : "Locked";
+  $("passwordInput").value = "";
+}
+
+function daysBetween(startISO, endISO) {
+  const start = new Date(`${startISO}T00:00:00`);
+  const end = new Date(`${endISO}T00:00:00`);
+  return Math.floor((end - start) / 86400000);
+}
+
+function calcTotals() {
+  const paidMembers = state.members.filter((m) => m.paid).length;
+  const amotanTotal = paidMembers * AMOTAN_AMOUNT;
+  const incomeTotal = state.income.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const expenseTotal = state.expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const remaining = Number(state.carryover || 0) + amotanTotal + incomeTotal - expenseTotal;
+  return { paidMembers, amotanTotal, incomeTotal, expenseTotal, remaining };
+}
+
+function summaryText(totals) {
+  const parts = [];
+  if (totals.amotanTotal) parts.push(`${money(totals.amotanTotal)} amotan`);
+  if (totals.incomeTotal) parts.push(`${money(totals.incomeTotal)} money in`);
+  if (totals.expenseTotal) parts.push(`${money(totals.expenseTotal)} spent`);
+  return parts.length ? parts.join(" + ") : "No payments or expenses yet.";
+}
+
+function escapeHTML(text = "") {
+  const div = document.createElement("div");
+  div.textContent = String(text);
+  return div.innerHTML;
+}
+
+function requireUnlock() {
+  if (unlocked) return true;
+  const entered = $("passwordInput").value.trim();
+  if (entered === PASSWORD) {
+    unlocked = true;
+    sessionStorage.setItem("amotUnlock", "yes");
+    setEditState();
+    showNotice("Unlocked for editing.", false);
+    return true;
+  }
+  showNotice("Enter the correct password to edit.", false);
   return false;
 }
 
-function cycleDaysLeft(){
-  const start = new Date(state.cycleStart + "T00:00:00");
-  const diff = Math.floor((new Date() - start) / 86400000);
-  return Math.max(0, CYCLE_DAYS - diff);
+function scheduleSave() {
+  saveLocal();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveCloudNow, 250);
 }
 
-function needsCycleClose(){
-  const start = new Date(state.cycleStart + "T00:00:00");
-  const diff = Math.floor((new Date() - start) / 86400000);
-  return diff >= CYCLE_DAYS;
+async function saveCloudNow() {
+  saveLocal();
+  if (!docRef || applyingRemote) return;
+  try {
+    await setDoc(docRef, { ...state, updatedAt: serverTimestamp() }, { merge: true });
+    setStatus("Synced online", "online");
+    showNotice("", true);
+  } catch (error) {
+    console.error("Cloud save failed:", error);
+    setStatus("Local only", "local");
+    showNotice("Saved locally. Firestore is offline or blocked.", false);
+  }
 }
 
-function autoCloseCycleIfNeeded(){
-  if (!needsCycleClose()) return false;
-  const t = totals();
-  const sobra = Math.max(0, t.balance);
-  state.carryover = sobra;
-  state.cycleStart = today();
-  state.members = state.members.map(m => ({...m, paid:false, paidAt:null}));
-  state.income = [];
-  state.expenses = [];
-  return true;
+function renderMembers() {
+  const box = $("membersList");
+  if (!state.members.length) {
+    box.innerHTML = `<p class="empty">No members yet.</p>`;
+    return;
+  }
+
+  box.innerHTML = state.members.map((m) => `
+    <div class="member-row">
+      <label>
+        <input type="checkbox" class="member-paid" data-id="${m.id}" ${m.paid ? "checked" : ""} />
+        <span>${escapeHTML(m.name)}</span>
+      </label>
+      <strong>${m.paid ? money(AMOTAN_AMOUNT) : "Unpaid"}</strong>
+      <button class="mini danger delete-member" data-id="${m.id}" type="button">Delete</button>
+    </div>
+  `).join("");
 }
 
-function totals(){
-  const paidAmotan = state.members.filter(m=>m.paid).length * AMOTAN_AMOUNT;
-  const income = state.income.reduce((s,x)=>s+Number(x.amount||0),0);
-  const expenses = state.expenses.reduce((s,x)=>s+Number(x.amount||0),0);
-  const balance = paidAmotan + income + Number(state.carryover||0) - expenses;
-  return {paidAmotan, income, expenses, balance};
+function renderTransactions() {
+  const items = [
+    ...state.income.map((item) => ({ ...item, kind: "income" })),
+    ...state.expenses.map((item) => ({ ...item, kind: "expense" }))
+  ].sort((a, b) => `${b.date || ""}${b.id}`.localeCompare(`${a.date || ""}${a.id}`));
+
+  const list = $("transactionsList");
+  if (!items.length) {
+    list.innerHTML = `<p class="empty">No activity yet.</p>`;
+    $("activityTotals").textContent = "No entries yet.";
+    return;
+  }
+
+  const totals = calcTotals();
+  $("activityTotals").textContent = `${state.income.length} money in, ${state.expenses.length} expenses.`;
+  list.innerHTML = items.map((item) => `
+    <div class="transaction-row ${item.kind}">
+      <div class="transaction-main">
+        <strong>${escapeHTML(item.description)}</strong>
+        <span>${escapeHTML(item.date)}</span>
+      </div>
+      <div class="transaction-meta">
+        <strong>${item.kind === "income" ? "+" : "-"} ${money(item.amount)}</strong>
+        <button class="mini danger delete-transaction" data-kind="${item.kind}" data-id="${item.id}" type="button">Delete</button>
+      </div>
+    </div>
+  `).join("");
 }
 
-function closeCycle(ask=true){
-  if (ask && !requireAdmin()) return;
-  const t = totals();
-  const sobra = Math.max(0, t.balance);
-  if (ask && !confirm(`Close this 15-day cycle? Sobra ${money(sobra)} will carry over.`)) return;
-  state.carryover = sobra;
-  state.cycleStart = today();
-  state.members = state.members.map(m=>({...m, paid:false, paidAt:null}));
-  state.income = [];
-  state.expenses = [];
-  render(); saveCloud();
-}
-
-function render(){
-  document.body.classList.toggle("dark", !!state.dark);
-  const t = totals();
-  $("balanceAmount").textContent = money(t.balance);
-  $("paidCount").textContent = `${state.members.filter(m=>m.paid).length}/${state.members.length}`;
+function renderSummary() {
+  const totals = calcTotals();
+  $("remainingBalance").textContent = money(totals.remaining);
+  $("paidMembers").textContent = `${totals.paidMembers}/${state.members.length}`;
   $("carryoverAmount").textContent = money(state.carryover);
-  $("cycleInfo").textContent = `${cycleDaysLeft()} day(s) left`;
-  $("cycleStarted").textContent = `Started ${state.cycleStart}`;
-  $("reportAmotan").textContent = money(t.paidAmotan);
-  $("reportIncome").textContent = money(t.income);
-  $("reportExpenses").textContent = money(t.expenses);
-  $("reportUnpaid").textContent = state.members.filter(m=>!m.paid).length;
-  renderMembers(); renderIncome(); renderExpenses(); renderChat(); renderChart();
+  $("cycleStarted").textContent = state.cycleStarted || "Today";
+
+  const elapsed = daysBetween(state.cycleStarted, todayISO());
+  const left = Math.max(0, CYCLE_DAYS - elapsed);
+  $("cycleLeft").textContent = `${left} day${left === 1 ? "" : "s"} left`;
+  $("summaryBreakdown").textContent = summaryText(totals);
 }
 
-function avatar(photo){
-  if (!photo) return "🍽️";
-  if (/^https?:\/\//.test(photo)) return `<img src="${escapeHtml(photo)}" alt="">`;
-  return escapeHtml(photo);
+function render() {
+  renderSummary();
+  renderMembers();
+  renderTransactions();
+  setEditState();
 }
 
-function renderMembers(){
-  $("memberList").innerHTML = state.members.sort((a,b)=>a.order-b.order).map(m=>`
-    <div class="member ${m.paid?'paid':''}">
-      <label><input type="checkbox" data-act="toggleMember" data-id="${m.id}" ${m.paid?'checked':''}> <span class="avatar">${avatar(m.photo)}</span><b>${escapeHtml(m.name)}</b></label>
-      <span class="member-money">${m.paid ? money(AMOTAN_AMOUNT) : 'Unpaid'}</span>
-      <button data-act="deleteMember" data-id="${m.id}" class="mini danger">Delete</button>
-    </div>`).join("") || `<p class="empty">No members yet.</p>`;
+function endCycle() {
+  const totals = calcTotals();
+  state = {
+    ...state,
+    members: state.members.map((m) => ({ ...m, paid: false })),
+    income: [],
+    expenses: [],
+    carryover: Math.max(0, totals.remaining),
+    cycleStarted: todayISO()
+  };
+  render();
+  scheduleSave();
 }
-function renderIncome(){
-  $("incomeBody").innerHTML = state.income.map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.description)}</td><td>${money(x.amount)}</td><td><button class="mini danger" data-act="deleteIncome" data-id="${x.id}">Delete</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No money in yet.</td></tr>`;
-}
-function renderExpenses(){
-  $("expenseBody").innerHTML = state.expenses.map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.category)}</td><td>${escapeHtml(x.description)}</td><td>${money(x.amount)}</td><td><button class="mini danger" data-act="deleteExpense" data-id="${x.id}">Delete</button></td></tr>`).join("") || `<tr><td colspan="5" class="empty">No expenses yet.</td></tr>`;
-}
-function renderChat(){
-  $("chatList").innerHTML = [...state.chat].slice(-40).reverse().map(c=>`<div class="chat"><b>${escapeHtml(c.name)}</b><small>${new Date(c.time).toLocaleString()}</small><p>${escapeHtml(c.message)}</p></div>`).join("") || `<p class="empty">No announcements yet.</p>`;
-}
-function renderChart(){
-  const ctx = $("expenseChart");
-  if (!window.Chart || !ctx) return;
-  const grouped = {};
-  state.expenses.forEach(e=> grouped[e.category]=(grouped[e.category]||0)+Number(e.amount||0));
-  const labels = Object.keys(grouped);
-  const data = Object.values(grouped);
-  if (chart) chart.destroy();
-  chart = new Chart(ctx, {
-    type:"doughnut",
-    data:{labels: labels.length ? labels : ["No expenses"], datasets:[{data: data.length ? data : [1]}]},
-    options:{plugins:{legend:{position:"bottom"}}, responsive:true, maintainAspectRatio:true}
-  });
-}
-function escapeHtml(v){ const d=document.createElement("div"); d.textContent=String(v ?? ""); return d.innerHTML; }
 
-function bind(){
-  ["incomeDate","expenseDate"].forEach(id=>$(id).value=today());
-  $("lockBtn").onclick=()=>{ sessionStorage.removeItem(SESSION_KEY); alert("Locked."); };
-  $("themeBtn").onclick=()=>{ if(!requireAdmin())return; state.dark=!state.dark; render(); saveCloud(); };
-  $("resetBtn").onclick=()=>closeCycle(true);
-  $("exportBtn").onclick=exportCsv;
-  $("recoverBtn").onclick=()=>{ if(!requireAdmin())return; recoverOldData(true); };
-  $("memberForm").onsubmit=e=>{ e.preventDefault(); if(!requireAdmin())return; const name=$("memberName").value.trim(); if(!name)return; state.members.push({id:uid(), name, photo:$("memberPhoto").value.trim()||"🍽️", paid:false, paidAt:null, order:state.members.length}); e.target.reset(); render(); saveCloud(); };
-  $("incomeForm").onsubmit=e=>{ e.preventDefault(); if(!requireAdmin())return; state.income.push({id:uid(), amount:Number($("incomeAmount").value), description:$("incomeDescription").value.trim(), date:$("incomeDate").value||today()}); e.target.reset(); $("incomeDate").value=today(); render(); saveCloud(); };
-  $("expenseForm").onsubmit=e=>{ e.preventDefault(); if(!requireAdmin())return; state.expenses.push({id:uid(), amount:Number($("expenseAmount").value), category:$("expenseCategory").value, description:$("expenseDescription").value.trim(), date:$("expenseDate").value||today()}); e.target.reset(); $("expenseDate").value=today(); render(); saveCloud(); };
-  $("chatForm").onsubmit=e=>{ e.preventDefault(); if(!requireAdmin())return; const msg=$("chatMessage").value.trim(); if(!msg)return; state.chat.push({id:uid(), name:$("chatName").value.trim()||"Admin", message:msg, time:Date.now()}); $("chatMessage").value=""; render(); saveCloud(); };
-  document.body.addEventListener("click", e=>{
-    const el = e.target.closest("[data-act]");
-    if(!el) return;
+function clearActivity() {
+  state = {
+    ...state,
+    income: [],
+    expenses: []
+  };
+  render();
+  scheduleSave();
+}
 
-    // IMPORTANT: do not handle member checkbox on click.
-    // Checkboxes must be handled by the change event below, otherwise the page
-    // re-renders before the checkbox can visually toggle on some browsers/mobile.
-    if(el.dataset.act === "toggleMember") return;
+function checkAutoCycle() {
+  if (daysBetween(state.cycleStarted, todayISO()) >= CYCLE_DAYS) {
+    endCycle();
+  }
+}
 
-    if(!requireAdmin()) return;
-    const {act,id}=el.dataset;
-    if(act==="deleteMember") state.members=state.members.filter(x=>x.id!==id);
-    if(act==="deleteIncome") state.income=state.income.filter(x=>x.id!==id);
-    if(act==="deleteExpense") state.expenses=state.expenses.filter(x=>x.id!==id);
-    render(); saveCloud();
+function bindEvents() {
+  $("transactionDate").value = todayISO();
+
+  $("unlockBtn").addEventListener("click", () => {
+    if (requireUnlock()) render();
   });
 
-  document.body.addEventListener("change", e=>{
-    const box = e.target.closest('input[type="checkbox"][data-act="toggleMember"]');
-    if(!box) return;
-    if(!requireAdmin()){ box.checked=!box.checked; return; }
-    const m=state.members.find(x=>x.id===box.dataset.id);
-    if(m){
-      m.paid = box.checked;
-      m.paidAt = m.paid ? Date.now() : null;
+  $("lockBtn").addEventListener("click", () => {
+    unlocked = false;
+    sessionStorage.removeItem("amotUnlock");
+    setEditState();
+    showNotice("Locked. Enter the password again to edit.", false);
+  });
+
+  $("memberForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!requireUnlock()) return;
+    const name = $("memberName").value.trim();
+    if (!name) {
+      showNotice("Add a member name first.", false);
+      return;
     }
-    saveLocal();
+    state.members.push({ id: uid(), name, paid: false });
+    $("memberName").value = "";
+    showNotice("", true);
     render();
-    saveCloud();
+    scheduleSave();
+  });
+
+  $("membersList").addEventListener("change", (e) => {
+    if (!e.target.classList.contains("member-paid")) return;
+    if (!requireUnlock()) {
+      e.target.checked = !e.target.checked;
+      return;
+    }
+    const member = state.members.find((m) => m.id === e.target.dataset.id);
+    if (member) member.paid = e.target.checked;
+    render();
+    scheduleSave();
+  });
+
+  $("membersList").addEventListener("click", (e) => {
+    const btn = e.target.closest(".delete-member");
+    if (!btn) return;
+    if (!requireUnlock()) return;
+    state.members = state.members.filter((m) => m.id !== btn.dataset.id);
+    render();
+    scheduleSave();
+  });
+
+  $("transactionForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!requireUnlock()) return;
+
+    const type = e.target.querySelector('input[name="transactionType"]:checked')?.value || "income";
+    const amount = Number($("transactionAmount").value);
+    const description = $("transactionDesc").value.trim();
+    const date = $("transactionDate").value || todayISO();
+
+    if (!amount || amount <= 0) {
+      showNotice("Enter a valid amount.", false);
+      return;
+    }
+    if (!description) {
+      showNotice("Enter a short description.", false);
+      return;
+    }
+
+    const entry = { id: uid(), amount, description, date };
+    if (type === "expense") state.expenses.unshift(entry);
+    else state.income.unshift(entry);
+
+    $("transactionAmount").value = "";
+    $("transactionDesc").value = "";
+    $("transactionDate").value = todayISO();
+    showNotice("", true);
+    render();
+    scheduleSave();
+  });
+
+  $("transactionForm").addEventListener("change", (e) => {
+    if (e.target.name !== "transactionType") return;
+    $("transactionSubmit").textContent = e.target.value === "expense" ? "Add Expense" : "Add Money In";
+    $("transactionSubmit").className = e.target.value === "expense" ? "danger-btn" : "success-btn";
+  });
+
+  $("transactionsList").addEventListener("click", (e) => {
+    const btn = e.target.closest(".delete-transaction");
+    if (!btn) return;
+    if (!requireUnlock()) return;
+    const kind = btn.dataset.kind;
+    const id = btn.dataset.id;
+    if (kind === "expense") state.expenses = state.expenses.filter((item) => item.id !== id);
+    else state.income = state.income.filter((item) => item.id !== id);
+    render();
+    scheduleSave();
+  });
+
+  $("manualResetBtn").addEventListener("click", () => {
+    if (!requireUnlock()) return;
+    if (confirm("End this cycle now and carry over any remaining balance?")) endCycle();
+  });
+
+  $("clearActivityBtn").addEventListener("click", () => {
+    if (!requireUnlock()) return;
+    if (confirm("Clear all money in and expenses for this cycle?")) clearActivity();
+  });
+
+  $("clearAllBtn").addEventListener("click", () => {
+    if (!requireUnlock()) return;
+    if (confirm("Clear everything: members, money in, expenses, and carryover?")) {
+      state = defaultState();
+      render();
+      scheduleSave();
+    }
   });
 }
 
-function recoverOldData(manual=false){
-  const old = collectOldData();
-  if (!hasRealData(old)) {
-    if (manual) alert("No old saved data found on this device/browser.");
-    status("No old local data detected on this browser.");
-    return false;
-  }
-  const before = JSON.stringify(state);
-  state = mergeStates(state, old);
-  const changed = before !== JSON.stringify(state);
-  if (changed) {
-    saveLocal(); render(); saveCloud();
-    status("Old saved data detected and merged.");
-    localStorage.setItem(MIGRATION_FLAG, "yes");
-    if (manual) alert("Old saved data merged successfully.");
-  } else {
-    status("Old saved data was already merged.");
-    if (manual) alert("Old saved data was already merged.");
-  }
-  return changed;
-}
-
-function exportCsv(){
-  const rows = [["Type","Date","Name/Category","Description","Amount","Paid"]];
-  state.members.forEach(m=>rows.push(["Member", m.paidAt?new Date(m.paidAt).toLocaleDateString():"", m.name, "Amotan", m.paid?AMOTAN_AMOUNT:0, m.paid?"Yes":"No"]));
-  state.income.forEach(i=>rows.push(["Money In", i.date, "", i.description, i.amount, ""]));
-  state.expenses.forEach(e=>rows.push(["Expense", e.date, e.category, e.description, e.amount, ""]));
-  const csv = rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");
-  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download="apartment-amotan-report.csv"; a.click();
-}
-
-async function initFirebase(){
-  try{
+async function initFirebase() {
+  try {
     const app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-    enableIndexedDbPersistence(db).catch(()=>{});
-    ref = doc(db, "budgetApp", "apartment-amotan-main");
-    onSnapshot(ref, snap=>{
-      online = true; setBadge("Online sync", "ok");
+    const db = getFirestore(app);
+    enableIndexedDbPersistence(db).catch(() => {});
+    docRef = doc(db, "budgetApp", "apartmentAmotan");
+
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      state = normalizeState(snap.data());
+    } else {
+      state = loadLocal();
+      await setDoc(docRef, { ...state, updatedAt: serverTimestamp() }, { merge: true });
+    }
+
+    setStatus("Synced online", "online");
+
+    onSnapshot(docRef, (snapshot) => {
+      if (!snapshot.exists()) return;
       applyingRemote = true;
-      let remote = snap.exists() ? cleanState(snap.data()) : cleanState({});
-      let merged = remote;
-      state = remote;
-      const cycleClosed = autoCloseCycleIfNeeded();
-      saveLocal(); render();
+      state = normalizeState(snapshot.data());
+      saveLocal();
+      checkAutoCycle();
+      render();
       applyingRemote = false;
-      if (!snap.exists()) saveCloud();
-      if (!booted) { booted = true; status("Ready. Cloud sync is active."); }
-    }, err=>{
-      console.error("Realtime sync error:", err);
-      online = false; setBadge("Local only", "warn");
-      status("Using local save. Check Firestore rules if cloud sync does not connect.");
+      setStatus("Synced online", "online");
+    }, (error) => {
+      console.error("Realtime listener failed:", error);
+      setStatus("Local only", "local");
     });
-  } catch(e){
-    console.error("Firebase init failed:", e);
-    online=false; setBadge("Local only", "warn");
-    status("Using local save. Firebase did not initialize.");
+  } catch (error) {
+    console.error("Firebase init failed:", error);
+    state = loadLocal();
+    setStatus("Local only", "local");
   }
 }
 
-window.addEventListener("DOMContentLoaded", ()=>{
-  state = cleanState(loadLocal() || {});
-  if (!state.members.length) state.members = defaultMembers();
-  const cycleClosed = autoCloseCycleIfNeeded();
-  bind(); render(); saveLocal();
-  if (localStorage.getItem(MIGRATION_FLAG) !== "yes") recoverOldData(false);
-  if (cycleClosed) saveLocal();
-  initFirebase();
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
-});
+async function boot() {
+  bindEvents();
+  state = loadLocal();
+  render();
+  await initFirebase();
+  checkAutoCycle();
+  render();
+}
+
+boot();

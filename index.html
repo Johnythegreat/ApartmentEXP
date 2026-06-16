@@ -1,104 +1,122 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Apartment Amotan Tracker</title>
-  <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#7c2d12">
   <link rel="stylesheet" href="styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-  <script type="module" src="app.js"></script>
 </head>
 <body>
-  <div class="app-shell">
-    <header class="hero">
+  <main class="app-shell">
+    <header class="topbar">
       <div>
-        <p class="eyebrow">Apartment Dinner Budget</p>
+        <p class="eyebrow">Apartment Budget</p>
         <h1>Amotan Tracker</h1>
-        <p>Realtime apartment budgeting, amotan, expenses, reports, and member status.</p>
+        <p class="subtitle">Simple shared tracker for ₱700 member payments, money in, expenses, and sobra.</p>
       </div>
-      <div class="hero-actions">
-        <span id="syncBadge" class="badge warn">Connecting...</span>
-        <button id="themeBtn" class="ghost">Dark Mode</button>
-        <button id="lockBtn" class="ghost">Lock</button>
+      <div class="topbar-actions">
+        <span id="syncStatus" class="status local">Starting...</span>
+        <div id="unlockBox" class="unlock-box">
+          <input id="passwordInput" type="password" placeholder="Password" autocomplete="current-password" />
+          <button id="unlockBtn" class="secondary-btn" type="button">Unlock</button>
+        </div>
+        <button id="lockBtn" class="ghost-btn" type="button">Lock</button>
       </div>
     </header>
 
-    <section class="dashboard">
-      <article class="stat highlight"><span>Remaining Balance</span><strong id="balanceAmount">₱0.00</strong><small>Paid amotan + money in + carryover - expenses</small></article>
-      <article class="stat"><span>Paid Members</span><strong id="paidCount">0/0</strong><small>₱700 per checked member</small></article>
-      <article class="stat"><span>Sobra Carryover</span><strong id="carryoverAmount">₱0.00</strong><small>Protected after reset</small></article>
-      <article class="stat"><span>Cycle</span><strong id="cycleInfo">0 days left</strong><small id="cycleStarted">Started today</small></article>
+    <section class="summary-grid" aria-label="Budget summary">
+      <article class="summary-card balance-card">
+        <span>Available Balance</span>
+        <strong id="remainingBalance">₱0.00</strong>
+        <small id="summaryBreakdown">No payments or expenses yet.</small>
+      </article>
+      <article class="summary-card">
+        <span>Members Paid</span>
+        <strong id="paidMembers">0/0</strong>
+        <small>₱700 each</small>
+      </article>
+      <article class="summary-card">
+        <span>Sobra</span>
+        <strong id="carryoverAmount">₱0.00</strong>
+        <small>Carried into this cycle</small>
+      </article>
+      <article class="summary-card">
+        <span>Cycle</span>
+        <strong id="cycleStarted">Today</strong>
+        <small id="cycleLeft">15 days left</small>
+      </article>
     </section>
 
-    <section class="toolbar card">
-      <div>
-        <strong>Controls</strong>
-        <p id="mergeStatus">Old saved data will be detected and merged automatically when available.</p>
-      </div>
-      <div class="toolbar-actions">
-        <button id="recoverBtn">Recover Old Data</button>
-        <button id="resetBtn" class="danger">Close 15-Day Cycle</button>
-        <button id="exportBtn">Export CSV</button>
-      </div>
-    </section>
+    <section id="notice" class="notice" hidden></section>
 
-    <details class="card" open>
-      <summary>Members Amotan Checklist — ₱700 each</summary>
-      <form id="memberForm" class="inline-form">
-        <input id="memberName" placeholder="Member name" required>
-        <input id="memberPhoto" placeholder="Photo URL or emoji (optional)">
-        <button>Add Member</button>
-      </form>
-      <div id="memberList" class="member-grid"></div>
-    </details>
-
-    <details class="card" open>
-      <summary>Money In</summary>
-      <form id="incomeForm" class="grid-form">
-        <input id="incomeAmount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
-        <input id="incomeDescription" placeholder="Description / source" required>
-        <input id="incomeDate" type="date" required>
-        <button class="success">Add Money In</button>
-      </form>
-      <div class="table-scroll"><table><thead><tr><th>Date</th><th>Description</th><th>Amount</th><th></th></tr></thead><tbody id="incomeBody"></tbody></table></div>
-    </details>
-
-    <details class="card" open>
-      <summary>Expenses</summary>
-      <form id="expenseForm" class="grid-form">
-        <input id="expenseAmount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
-        <select id="expenseCategory"><option>Dinner</option><option>Rice</option><option>Water</option><option>Grocery</option><option>Pamalengle</option><option>Utilities</option><option>Other</option></select>
-        <input id="expenseDescription" placeholder="Description" required>
-        <input id="expenseDate" type="date" required>
-        <button>Add Expense</button>
-      </form>
-      <div class="table-scroll"><table><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr></thead><tbody id="expenseBody"></tbody></table></div>
-    </details>
-
-    <section class="two-col">
-      <details class="card" open>
-        <summary>Reports & Charts</summary>
-        <div class="report-grid">
-          <div><span>Total Amotan</span><strong id="reportAmotan">₱0.00</strong></div>
-          <div><span>Total Money In</span><strong id="reportIncome">₱0.00</strong></div>
-          <div><span>Total Expenses</span><strong id="reportExpenses">₱0.00</strong></div>
-          <div><span>Unpaid Members</span><strong id="reportUnpaid">0</strong></div>
+    <section class="workspace-grid">
+      <section class="panel members-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Members</h2>
+            <p>Check a member once they pay ₱700.</p>
+          </div>
+          <span id="editState" class="pill">Locked</span>
         </div>
-        <canvas id="expenseChart"></canvas>
-      </details>
 
-      <details class="card" open>
-        <summary>Apartment Announcements / Chat</summary>
-        <form id="chatForm" class="chat-form">
-          <input id="chatName" placeholder="Your name" value="Admin">
-          <textarea id="chatMessage" placeholder="Post announcement or message" required></textarea>
-          <button>Send</button>
+        <form id="memberForm" class="inline-form">
+          <input id="memberName" type="text" placeholder="Add member name" autocomplete="off" />
+          <button type="submit" class="primary-btn">Add</button>
         </form>
-        <div id="chatList" class="chat-list"></div>
-      </details>
+
+        <div id="membersList" class="member-list"></div>
+      </section>
+
+      <section class="panel transactions-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Add Transaction</h2>
+            <p>Use one form for money in and money out.</p>
+          </div>
+        </div>
+
+        <form id="transactionForm" class="transaction-form">
+          <div class="segmented" role="radiogroup" aria-label="Transaction type">
+            <label>
+              <input type="radio" name="transactionType" value="income" checked />
+              <span>Money In</span>
+            </label>
+            <label>
+              <input type="radio" name="transactionType" value="expense" />
+              <span>Expense</span>
+            </label>
+          </div>
+          <input id="transactionAmount" type="number" min="0.01" step="0.01" placeholder="Amount" />
+          <input id="transactionDesc" type="text" placeholder="Description" />
+          <input id="transactionDate" type="date" />
+          <button id="transactionSubmit" type="submit" class="success-btn">Add Money In</button>
+        </form>
+
+        <div class="panel-heading compact">
+          <div>
+            <h2>Recent Activity</h2>
+            <p id="activityTotals">No entries yet.</p>
+          </div>
+        </div>
+        <div id="transactionsList" class="transactions-list"></div>
+      </section>
     </section>
-  </div>
+
+    <section class="panel admin-panel">
+      <div class="panel-heading">
+        <div>
+          <h2>Cycle Tools</h2>
+          <p>End the cycle to keep the remaining balance as next cycle's sobra.</p>
+        </div>
+      </div>
+      <div class="admin-actions">
+        <button id="manualResetBtn" class="warn-btn" type="button">End Cycle</button>
+        <button id="clearActivityBtn" class="secondary-btn" type="button">Clear Activity</button>
+        <button id="clearAllBtn" class="danger-btn" type="button">Clear Everything</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
 </body>
 </html>
