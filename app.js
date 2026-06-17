@@ -30,6 +30,9 @@ const STORAGE_SCOPE = params.get("test");
 const BASE_LOCAL_KEY = "apartment-amotan-state-v5";
 const LOCAL_KEY = STORAGE_SCOPE ? `${BASE_LOCAL_KEY}-${STORAGE_SCOPE}` : BASE_LOCAL_KEY;
 const LEGACY_LOCAL_KEYS = STORAGE_SCOPE ? [] : ["apartment-amotan-state-v4", "apartment-amotan-state-v3"];
+const FIRESTORE_COLLECTION = "budgetApp";
+const FIRESTORE_DOC_ID = "apartment-amotan-main";
+const FIRESTORE_DOC_PATH = `${FIRESTORE_COLLECTION}/${FIRESTORE_DOC_ID}`;
 
 const $ = (id) => document.getElementById(id);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -66,6 +69,21 @@ let unlocked = sessionStorage.getItem("amotUnlock") === "yes";
 let docRef = null;
 let saveTimer = null;
 let applyingRemote = false;
+
+function logFirestore(action, detail = "") {
+  console.info(`[Firestore] ${action}: ${FIRESTORE_DOC_PATH}${detail ? ` (${detail})` : ""}`);
+}
+
+function hasMeaningfulLocalData(localState) {
+  return Boolean(
+    localState.members?.length ||
+    localState.income?.length ||
+    localState.expenses?.length ||
+    localState.carryover ||
+    localState.bills?.electricity?.amount ||
+    localState.bills?.water?.amount
+  );
+}
 
 function normalizeState(data) {
   const next = {
@@ -163,6 +181,7 @@ async function saveCloudNow() {
   saveLocal();
   if (OFFLINE_MODE || !docRef || applyingRemote) return;
   try {
+    logFirestore("write setDoc", "scheduled save");
     await setDoc(docRef, { ...state, updatedAt: serverTimestamp() }, { merge: true });
     setStatus("Synced online", "online");
     showNotice("", true);
@@ -732,13 +751,23 @@ async function initFirebase() {
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
     enableIndexedDbPersistence(db).catch(() => {});
-    docRef = doc(db, "budgetApp", "apartmentAmotan");
+    docRef = doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID);
 
+    logFirestore("read getDoc");
     const snap = await getDoc(docRef);
     if (snap.exists()) {
+      console.info(`[Firestore] loaded snapshot from ${FIRESTORE_DOC_PATH}`);
       state = normalizeState(snap.data());
     } else {
-      state = loadLocal();
+      const localState = loadLocal();
+      if (hasMeaningfulLocalData(localState)) {
+        console.info(`[Firestore] remote empty, seeding from local storage into ${FIRESTORE_DOC_PATH}`);
+        state = localState;
+      } else {
+        state = defaultState();
+        console.info(`[Firestore] remote empty and local empty; initializing ${FIRESTORE_DOC_PATH}`);
+      }
+      logFirestore("write setDoc", "initial seed");
       await setDoc(docRef, { ...state, updatedAt: serverTimestamp() }, { merge: true });
     }
 
@@ -747,6 +776,7 @@ async function initFirebase() {
     onSnapshot(docRef, (snapshot) => {
       if (!snapshot.exists()) return;
       applyingRemote = true;
+      logFirestore("listener snapshot", `exists=${snapshot.exists()}`);
       state = normalizeState(snapshot.data());
       saveLocal();
       checkAutoCycle();

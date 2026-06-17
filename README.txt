@@ -18,6 +18,12 @@ Important Firebase setup:
 If the badge says "Synced online", phone and laptop will sync.
 If the badge says "Local only", Firestore is not enabled, rules are not published, or the browser/network blocked Firebase.
 
+Firestore document used by the app:
+budgetApp/apartment-amotan-main
+
+Open the browser console to confirm reads and writes. Logs start with:
+[Firestore]
+
 The app now uses one simple transaction form:
 - Choose Money In or Expense.
 - Enter amount, description, and date.
