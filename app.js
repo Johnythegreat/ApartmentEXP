@@ -48,6 +48,20 @@ const PROFILE_FIELDS = [
   { key: "notes", label: "Notes / Biography", inputId: "profileNotes" }
 ];
 const PROFILE_PHOTO_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const EXPENSE_CATEGORIES = [
+  "Electricity",
+  "Water",
+  "Internet",
+  "Maintenance",
+  "Repairs",
+  "Cleaning",
+  "Security",
+  "Supplies",
+  "Salary",
+  "Miscellaneous"
+];
+const REPORT_EXPORT_NAME = "apartment-report";
+const BACKUP_EXPORT_NAME = "apartment-tracker-backup";
 
 const $ = (id) => document.getElementById(id);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -62,6 +76,8 @@ const defaultState = () => ({
     electricity: defaultBill("Electricity Bill", "electricity"),
     water: defaultBill("Water Bill", "water")
   },
+  rooms: [],
+  settings: defaultSettings(),
   carryover: 0,
   cycleStarted: todayISO(),
   updatedAt: null
@@ -75,7 +91,19 @@ function defaultBill(name, key) {
     members: [],
     paidMembers: [],
     weights: {},
+    date: todayISO(),
     updatedAt: null
+  };
+}
+
+function defaultSettings() {
+  return {
+    apartmentName: "Apartment Tracker",
+    autoBackup: {
+      enabled: false,
+      frequency: "weekly",
+      lastRun: null
+    }
   };
 }
 
@@ -106,6 +134,61 @@ function normalizeMember(member = {}) {
   };
 }
 
+function normalizeIncome(item = {}) {
+  return {
+    ...item,
+    id: item.id || uid(),
+    amount: Number(item.amount || 0),
+    description: String(item.description || "Money In").trim(),
+    date: item.date || todayISO()
+  };
+}
+
+function normalizeExpense(item = {}) {
+  const category = EXPENSE_CATEGORIES.includes(item.category) ? item.category : "Miscellaneous";
+  return {
+    ...item,
+    id: item.id || uid(),
+    date: item.date || todayISO(),
+    category,
+    description: String(item.description || "Expense").trim(),
+    amount: Number(item.amount || 0),
+    paidBy: String(item.paidBy || "").trim(),
+    paymentMethod: String(item.paymentMethod || "").trim(),
+    receiptNumber: String(item.receiptNumber || "").trim(),
+    notes: String(item.notes || "").trim()
+  };
+}
+
+function normalizeRoom(room = {}) {
+  return {
+    ...room,
+    id: room.id || uid(),
+    name: String(room.name || room.number || "Room").trim(),
+    status: room.status === "vacant" ? "vacant" : "occupied",
+    memberId: room.memberId || ""
+  };
+}
+
+function normalizeSettings(settings = {}) {
+  const defaults = defaultSettings();
+  const frequency = ["daily", "weekly", "monthly"].includes(settings?.autoBackup?.frequency)
+    ? settings.autoBackup.frequency
+    : defaults.autoBackup.frequency;
+  return {
+    ...defaults,
+    ...(settings || {}),
+    apartmentName: String(settings?.apartmentName || defaults.apartmentName).trim(),
+    autoBackup: {
+      ...defaults.autoBackup,
+      ...(settings?.autoBackup || {}),
+      enabled: Boolean(settings?.autoBackup?.enabled),
+      frequency,
+      lastRun: settings?.autoBackup?.lastRun || null
+    }
+  };
+}
+
 let state = defaultState();
 let unlocked = sessionStorage.getItem("amotUnlock") === "yes";
 let docRef = null;
@@ -113,6 +196,9 @@ let saveTimer = null;
 let applyingRemote = false;
 let activeProfileMemberId = null;
 let editingProfileMemberId = null;
+let activeView = "home";
+let pendingRestoreState = null;
+let deleteBackupDownloaded = false;
 
 function logFirestore(action, detail = "") {
   console.info(`[Firestore] ${action}: ${FIRESTORE_DOC_PATH}${detail ? ` (${detail})` : ""}`);
@@ -134,12 +220,14 @@ function normalizeState(data) {
     ...defaultState(),
     ...(data || {}),
     members: Array.isArray(data?.members) ? data.members.map(normalizeMember) : [],
-    income: Array.isArray(data?.income) ? data.income : [],
-    expenses: Array.isArray(data?.expenses) ? data.expenses : [],
+    income: Array.isArray(data?.income) ? data.income.map(normalizeIncome) : [],
+    expenses: Array.isArray(data?.expenses) ? data.expenses.map(normalizeExpense) : [],
     bills: {
       electricity: normalizeBill(data?.bills?.electricity, "Electricity Bill", "electricity"),
       water: normalizeBill(data?.bills?.water, "Water Bill", "water")
     },
+    rooms: Array.isArray(data?.rooms) ? data.rooms.map(normalizeRoom) : [],
+    settings: normalizeSettings(data?.settings),
     carryover: Number(data?.carryover || 0),
     cycleStarted: data?.cycleStarted || todayISO()
   };
@@ -155,6 +243,7 @@ function normalizeBill(bill, name, key) {
     members: Array.isArray(bill?.members) ? bill.members : [],
     paidMembers: Array.isArray(bill?.paidMembers) ? bill.paidMembers : [],
     weights: bill?.weights && typeof bill.weights === "object" ? bill.weights : {},
+    date: bill?.date || todayISO(),
     airconMembers: Array.isArray(bill?.airconMembers) ? bill.airconMembers.slice(0, 2) : []
   };
 }
@@ -315,6 +404,536 @@ function resetProfileForm() {
   if ($("profilePhoto")) $("profilePhoto").value = "";
 }
 
+function startOfDay(date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function isoFromDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function parseDate(value) {
+  return value ? new Date(`${value}T00:00:00`) : null;
+}
+
+function inRange(dateValue, range) {
+  const date = parseDate(dateValue);
+  if (!date) return true;
+  return date >= range.start && date <= range.end;
+}
+
+function monthKey(dateValue) {
+  return (dateValue || todayISO()).slice(0, 7);
+}
+
+function getReportRange() {
+  const period = document.querySelector('input[name="reportPeriod"]:checked')?.value || "monthly";
+  const today = startOfDay(new Date());
+  let start = new Date(today);
+  let end = endOfDay(today);
+
+  if (period === "weekly") {
+    const day = start.getDay();
+    start = startOfDay(addDays(start, -day));
+    end = endOfDay(addDays(start, 6));
+  } else if (period === "monthly") {
+    start = new Date(today.getFullYear(), today.getMonth(), 1);
+    end = endOfDay(new Date(today.getFullYear(), today.getMonth() + 1, 0));
+  } else if (period === "yearly") {
+    start = new Date(today.getFullYear(), 0, 1);
+    end = endOfDay(new Date(today.getFullYear(), 11, 31));
+  } else if (period === "custom") {
+    start = parseDate($("reportStartDate")?.value) || start;
+    end = endOfDay(parseDate($("reportEndDate")?.value) || start);
+  }
+
+  return { period, start: startOfDay(start), end };
+}
+
+function currentCollections() {
+  const bills = [getBillData("electricity"), getBillData("water")];
+  const billCollections = bills.reduce((sum, bill) => sum + bill.collected, 0);
+  return calcTotals().amotanTotal + billCollections;
+}
+
+function currentOverdue() {
+  const unpaidAmotan = state.members.filter((member) => !member.paid).length * AMOTAN_AMOUNT;
+  const bills = [getBillData("electricity"), getBillData("water")];
+  return unpaidAmotan + bills.reduce((sum, bill) => sum + bill.outstanding, 0);
+}
+
+function roomStats() {
+  const explicitRooms = state.rooms || [];
+  const occupiedFromRooms = explicitRooms.filter((room) => room.status === "occupied").length;
+  const vacantFromRooms = explicitRooms.filter((room) => room.status === "vacant").length;
+  const occupiedFromMembers = new Set(
+    state.members
+      .map((member) => member.profile?.apartmentRoom)
+      .filter(Boolean)
+      .map((room) => room.toLowerCase())
+  ).size;
+  return {
+    occupied: explicitRooms.length ? occupiedFromRooms : occupiedFromMembers,
+    vacant: explicitRooms.length ? vacantFromRooms : 0,
+    total: explicitRooms.length || occupiedFromMembers
+  };
+}
+
+function reportRecords(range = getReportRange()) {
+  const income = state.income.filter((item) => inRange(item.date, range));
+  const expenses = state.expenses.filter((item) => inRange(item.date, range));
+  const transactions = [
+    ...income.map((item) => ({ ...item, type: "Income", category: "Income" })),
+    ...expenses.map((item) => ({ ...item, type: "Expense" }))
+  ].sort((a, b) => `${b.date || ""}${b.id}`.localeCompare(`${a.date || ""}${a.id}`));
+  return { income, expenses, transactions };
+}
+
+function reportData() {
+  const range = getReportRange();
+  const records = reportRecords(range);
+  const incomeTotal = records.income.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const expenseTotal = records.expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const rooms = roomStats();
+  const monthlyCollections = currentCollections();
+  const overduePayments = currentOverdue();
+  return {
+    range,
+    records,
+    summary: {
+      incomeTotal,
+      expenseTotal,
+      netBalance: incomeTotal - expenseTotal,
+      totalMembers: state.members.length,
+      occupiedRooms: rooms.occupied,
+      vacantRooms: rooms.vacant,
+      monthlyCollections,
+      overduePayments
+    }
+  };
+}
+
+function sumByMonth(items) {
+  const buckets = new Map();
+  for (const item of items) {
+    const key = monthKey(item.date);
+    buckets.set(key, (buckets.get(key) || 0) + Number(item.amount || 0));
+  }
+  return [...buckets.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-12);
+}
+
+function sumByCategory(expenses) {
+  const buckets = new Map();
+  for (const item of expenses) {
+    buckets.set(item.category, (buckets.get(item.category) || 0) + Number(item.amount || 0));
+  }
+  return [...buckets.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+function drawBarChart(canvasId, rows, color) {
+  const canvas = $(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(0, 0, width, height);
+  const max = Math.max(1, ...rows.map((row) => row[1]));
+  const chartTop = 24;
+  const chartBottom = height - 42;
+  const chartHeight = chartBottom - chartTop;
+  const barGap = 12;
+  const barWidth = rows.length ? Math.max(18, (width - 48 - barGap * (rows.length - 1)) / rows.length) : 32;
+  ctx.fillStyle = "#667085";
+  ctx.font = "12px system-ui, sans-serif";
+
+  if (!rows.length) {
+    ctx.fillText("No data yet", 20, 36);
+    return;
+  }
+
+  rows.forEach(([label, value], index) => {
+    const x = 24 + index * (barWidth + barGap);
+    const barHeight = Math.round((value / max) * chartHeight);
+    const y = chartBottom - barHeight;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, barWidth, barHeight);
+    ctx.fillStyle = "#667085";
+    ctx.fillText(label.slice(5) || label, x, height - 18);
+  });
+}
+
+function drawDonutChart(canvasId, rows) {
+  const canvas = $(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  const colors = ["#2563eb", "#067647", "#f79009", "#b42318", "#7c3aed", "#0891b2", "#475467", "#c026d3"];
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(0, 0, width, height);
+  const total = rows.reduce((sum, row) => sum + Number(row[1] || 0), 0);
+  if (!total) {
+    ctx.fillStyle = "#667085";
+    ctx.font = "12px system-ui, sans-serif";
+    ctx.fillText("No data yet", 20, 36);
+    return;
+  }
+  let angle = -Math.PI / 2;
+  const cx = 118;
+  const cy = height / 2;
+  const radius = 78;
+  rows.forEach(([label, value], index) => {
+    const slice = (value / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, radius, angle, angle + slice);
+    ctx.closePath();
+    ctx.fillStyle = colors[index % colors.length];
+    ctx.fill();
+    angle += slice;
+  });
+  ctx.beginPath();
+  ctx.arc(cx, cy, 42, 0, Math.PI * 2);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+  ctx.font = "12px system-ui, sans-serif";
+  rows.slice(0, 6).forEach(([label, value], index) => {
+    const y = 50 + index * 28;
+    ctx.fillStyle = colors[index % colors.length];
+    ctx.fillRect(250, y - 10, 12, 12);
+    ctx.fillStyle = "#344054";
+    ctx.fillText(`${label}: ${money(value)}`, 270, y);
+  });
+}
+
+function setActiveView(view) {
+  activeView = view;
+  document.querySelectorAll("[data-view-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.viewPanel !== view;
+    panel.classList.toggle("active", panel.dataset.viewPanel === view);
+  });
+  document.querySelectorAll(".nav-tab").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.view === view);
+  });
+  renderReports();
+  renderExpenseManagement();
+  renderBackupSettings();
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? `"${text.replaceAll("\"", "\"\"")}"` : text;
+}
+
+function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function buildReportRows() {
+  const data = reportData();
+  const rangeText = `${isoFromDate(data.range.start)} to ${isoFromDate(data.range.end)}`;
+  const summaryRows = [
+    ["Company/Apartment Name", state.settings.apartmentName],
+    ["Report Date", todayISO()],
+    ["Selected Date Range", rangeText],
+    ["Total Income", data.summary.incomeTotal],
+    ["Total Expenses", data.summary.expenseTotal],
+    ["Profit/Loss", data.summary.netBalance],
+    ["Total Members", data.summary.totalMembers],
+    ["Total Occupied Rooms", data.summary.occupiedRooms],
+    ["Total Vacant Rooms", data.summary.vacantRooms],
+    ["Total Monthly Collections", data.summary.monthlyCollections],
+    ["Overdue Payments", data.summary.overduePayments]
+  ];
+  const detailRows = data.records.transactions.map((item) => [
+    item.date,
+    item.type,
+    item.category || "",
+    item.description,
+    item.amount,
+    item.paidBy || "",
+    item.paymentMethod || "",
+    item.receiptNumber || "",
+    item.notes || ""
+  ]);
+  return { summaryRows, detailRows, data };
+}
+
+function exportReportCSV() {
+  const { summaryRows, detailRows } = buildReportRows();
+  const rows = [
+    ["Summary"],
+    ...summaryRows,
+    [],
+    ["Detailed Transactions"],
+    ["Date", "Type", "Category", "Description", "Amount", "Paid By", "Payment Method", "Receipt Number", "Notes"],
+    ...detailRows
+  ];
+  const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+  downloadBlob(`${REPORT_EXPORT_NAME}-${todayISO()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+}
+
+function pdfText(text) {
+  return String(text).replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)");
+}
+
+function exportReportPDF() {
+  const { summaryRows, detailRows } = buildReportRows();
+  const lines = [
+    `${state.settings.apartmentName} Financial Report`,
+    `Report Date: ${todayISO()}`,
+    "",
+    "Summary",
+    ...summaryRows.map(([label, value]) => `${label}: ${typeof value === "number" ? money(value) : value}`),
+    "",
+    "Detailed Transactions",
+    ...detailRows.slice(0, 32).map((row) => `${row[0]} | ${row[1]} | ${row[3]} | ${money(row[4])}`)
+  ];
+  const content = [
+    "BT",
+    "/F1 10 Tf",
+    "40 780 Td",
+    ...lines.flatMap((line, index) => [
+      index ? "0 -14 Td" : "",
+      `(${pdfText(line).slice(0, 110)}) Tj`
+    ]).filter(Boolean),
+    "ET"
+  ].join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  downloadBlob(`${REPORT_EXPORT_NAME}-${todayISO()}.pdf`, new Blob([pdf], { type: "application/pdf" }));
+}
+
+function crc32(text) {
+  const table = crc32.table || (crc32.table = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  }));
+  const bytes = new TextEncoder().encode(text);
+  let crc = -1;
+  for (const byte of bytes) crc = (crc >>> 8) ^ table[(crc ^ byte) & 0xff];
+  return (crc ^ -1) >>> 0;
+}
+
+function dosTime(date = new Date()) {
+  return {
+    time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
+    date: ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate()
+  };
+}
+
+function createZipBlob(files) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  const stamp = dosTime();
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const dataBytes = encoder.encode(file.content);
+    const crc = crc32(file.content);
+    const local = new ArrayBuffer(30);
+    const localView = new DataView(local);
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(10, stamp.time, true);
+    localView.setUint16(12, stamp.date, true);
+    localView.setUint32(14, crc, true);
+    localView.setUint32(18, dataBytes.length, true);
+    localView.setUint32(22, dataBytes.length, true);
+    localView.setUint16(26, nameBytes.length, true);
+    chunks.push(local, nameBytes, dataBytes);
+    const centralHeader = new ArrayBuffer(46);
+    const centralView = new DataView(centralHeader);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint16(12, stamp.time, true);
+    centralView.setUint16(14, stamp.date, true);
+    centralView.setUint32(16, crc, true);
+    centralView.setUint32(20, dataBytes.length, true);
+    centralView.setUint32(24, dataBytes.length, true);
+    centralView.setUint16(28, nameBytes.length, true);
+    centralView.setUint32(42, offset, true);
+    central.push(centralHeader, nameBytes);
+    offset += 30 + nameBytes.length + dataBytes.length;
+  }
+  const centralOffset = offset;
+  const centralSize = central.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const end = new ArrayBuffer(22);
+  const endView = new DataView(end);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(8, files.length, true);
+  endView.setUint16(10, files.length, true);
+  endView.setUint32(12, centralSize, true);
+  endView.setUint32(16, centralOffset, true);
+  return new Blob([...chunks, ...central, end], { type: "application/zip" });
+}
+
+function sheetXml(rows) {
+  const cell = (value) => `<c t="inlineStr"><is><t>${escapeHTML(value)}</t></is></c>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+${rows.map((row, index) => `<row r="${index + 1}">${row.map(cell).join("")}</row>`).join("")}
+</sheetData></worksheet>`;
+}
+
+function exportReportExcel() {
+  const { summaryRows, detailRows } = buildReportRows();
+  const rows = [
+    ["Summary"],
+    ...summaryRows,
+    [],
+    ["Detailed Transactions"],
+    ["Date", "Type", "Category", "Description", "Amount", "Paid By", "Payment Method", "Receipt Number", "Notes"],
+    ...detailRows
+  ];
+  const files = [
+    { name: "[Content_Types].xml", content: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>` },
+    { name: "_rels/.rels", content: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { name: "xl/workbook.xml", content: `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { name: "xl/_rels/workbook.xml.rels", content: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>` },
+    { name: "xl/worksheets/sheet1.xml", content: sheetXml(rows) }
+  ];
+  downloadBlob(`${REPORT_EXPORT_NAME}-${todayISO()}.xlsx`, createZipBlob(files));
+}
+
+function backupPayload() {
+  return {
+    app: "Apartment Amotan Tracker",
+    version: 6,
+    exportedAt: new Date().toISOString(),
+    databasePath: FIRESTORE_DOC_PATH,
+    data: normalizeState(state),
+    reports: reportData()
+  };
+}
+
+function downloadBackup(format = "json") {
+  const payload = backupPayload();
+  const json = JSON.stringify(payload, null, 2);
+  if (format === "zip") {
+    downloadBlob(`${BACKUP_EXPORT_NAME}-${todayISO()}.zip`, createZipBlob([
+      { name: "backup.json", content: json },
+      { name: "reports.json", content: JSON.stringify(payload.reports, null, 2) }
+    ]));
+  } else {
+    downloadBlob(`${BACKUP_EXPORT_NAME}-${todayISO()}.json`, new Blob([json], { type: "application/json" }));
+  }
+}
+
+async function readBackupFile(file) {
+  const buffer = await file.arrayBuffer();
+  if (file.name.toLowerCase().endsWith(".zip")) {
+    return extractBackupJsonFromZip(buffer);
+  }
+  return new TextDecoder().decode(buffer);
+}
+
+function extractBackupJsonFromZip(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const decoder = new TextDecoder();
+  for (let i = 0; i < bytes.length - 30; i++) {
+    if (bytes[i] !== 0x50 || bytes[i + 1] !== 0x4b || bytes[i + 2] !== 0x03 || bytes[i + 3] !== 0x04) continue;
+    const view = new DataView(buffer, i, 30);
+    const compressed = view.getUint16(8, true);
+    const size = view.getUint32(18, true);
+    const nameLength = view.getUint16(26, true);
+    const extraLength = view.getUint16(28, true);
+    const nameStart = i + 30;
+    const name = decoder.decode(bytes.slice(nameStart, nameStart + nameLength));
+    const dataStart = nameStart + nameLength + extraLength;
+    if (name === "backup.json" && compressed === 0) {
+      return decoder.decode(bytes.slice(dataStart, dataStart + size));
+    }
+  }
+  throw new Error("Backup ZIP must contain an uncompressed backup.json file.");
+}
+
+function validateBackupPayload(payload) {
+  const data = payload?.data || payload;
+  if (!data || typeof data !== "object") throw new Error("Backup file is empty or invalid.");
+  const normalized = normalizeState(data);
+  if (!Array.isArray(normalized.members) || !Array.isArray(normalized.income) || !Array.isArray(normalized.expenses)) {
+    throw new Error("Backup is missing required tracker records.");
+  }
+  return normalized;
+}
+
+function renderRestorePreview(statePreview) {
+  const rooms = statePreview.rooms || [];
+  $("restorePreview").innerHTML = `
+    <div class="preview-grid">
+      <span>Members <strong>${statePreview.members.length}</strong></span>
+      <span>Rooms <strong>${rooms.length}</strong></span>
+      <span>Income <strong>${statePreview.income.length}</strong></span>
+      <span>Expenses <strong>${statePreview.expenses.length}</strong></span>
+      <span>Transactions <strong>${statePreview.income.length + statePreview.expenses.length}</strong></span>
+    </div>
+  `;
+}
+
+function autoBackupDue() {
+  const config = state.settings.autoBackup;
+  if (!config.enabled) return false;
+  if (!config.lastRun) return true;
+  const days = daysBetween(config.lastRun.slice(0, 10), todayISO());
+  if (config.frequency === "daily") return days >= 1;
+  if (config.frequency === "weekly") return days >= 7;
+  return days >= 30;
+}
+
+function runAutoBackupIfDue() {
+  if (!autoBackupDue()) return;
+  const key = `${LOCAL_KEY}-auto-backups`;
+  const backups = JSON.parse(localStorage.getItem(key) || "[]");
+  backups.unshift(backupPayload());
+  localStorage.setItem(key, JSON.stringify(backups.slice(0, 10)));
+  state.settings.autoBackup.lastRun = new Date().toISOString();
+  saveLocal();
+}
+
 function requireUnlock() {
   if (unlocked) return true;
   const entered = $("passwordInput").value.trim();
@@ -331,6 +950,11 @@ function requireUnlock() {
 
 function scheduleSave() {
   saveLocal();
+  try {
+    runAutoBackupIfDue();
+  } catch (error) {
+    console.warn("Automatic backup skipped:", error);
+  }
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveCloudNow, 250);
 }
@@ -707,6 +1331,8 @@ function bindEvents() {
   $("transactionDate").value = todayISO();
   $("electricityDate").value = todayISO();
   $("waterDate").value = todayISO();
+  $("reportStartDate").value = isoFromDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  $("reportEndDate").value = todayISO();
 
   $("unlockBtn").addEventListener("click", () => {
     if (requireUnlock()) render();
@@ -718,6 +1344,25 @@ function bindEvents() {
     setEditState();
     showNotice("Locked. Enter the password again to edit.", false);
   });
+
+  document.querySelectorAll(".nav-tab").forEach((tab) => {
+    tab.addEventListener("click", () => setActiveView(tab.dataset.view));
+  });
+
+  document.querySelectorAll('input[name="reportPeriod"]').forEach((input) => {
+    input.addEventListener("change", renderReports);
+  });
+  $("reportStartDate").addEventListener("change", () => {
+    document.querySelector('input[name="reportPeriod"][value="custom"]').checked = true;
+    renderReports();
+  });
+  $("reportEndDate").addEventListener("change", () => {
+    document.querySelector('input[name="reportPeriod"][value="custom"]').checked = true;
+    renderReports();
+  });
+  $("exportCsvBtn").addEventListener("click", exportReportCSV);
+  $("exportPdfBtn").addEventListener("click", exportReportPDF);
+  $("exportExcelBtn").addEventListener("click", exportReportExcel);
 
   $("memberForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -847,7 +1492,9 @@ function bindEvents() {
       return;
     }
 
-    const entry = { id: uid(), amount, description, date };
+    const entry = type === "expense"
+      ? normalizeExpense({ id: uid(), amount, description, date, category: "Miscellaneous" })
+      : normalizeIncome({ id: uid(), amount, description, date });
     if (type === "expense") state.expenses.unshift(entry);
     else state.income.unshift(entry);
 
@@ -877,6 +1524,153 @@ function bindEvents() {
     scheduleSave();
   });
 
+  $("expenseForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!requireUnlock()) return;
+    const amount = Number($("expenseAmount").value);
+    const description = $("expenseDescription").value.trim();
+    if (!amount || amount <= 0) {
+      showNotice("Enter a valid expense amount.", false);
+      return;
+    }
+    if (!description) {
+      showNotice("Enter an expense description.", false);
+      return;
+    }
+    const entry = normalizeExpense({
+      id: $("expenseId").value || uid(),
+      date: $("expenseDate").value || todayISO(),
+      category: $("expenseCategory").value || "Miscellaneous",
+      description,
+      amount,
+      paidBy: $("expensePaidBy").value,
+      paymentMethod: $("expensePaymentMethod").value,
+      receiptNumber: $("expenseReceiptNumber").value,
+      notes: $("expenseNotes").value
+    });
+    const existingIndex = state.expenses.findIndex((expense) => expense.id === entry.id);
+    if (existingIndex >= 0) state.expenses[existingIndex] = entry;
+    else state.expenses.unshift(entry);
+    resetExpenseForm();
+    showNotice("", true);
+    render();
+    scheduleSave();
+  });
+
+  $("expenseCancelBtn").addEventListener("click", resetExpenseForm);
+
+  ["expenseSearch", "expenseFilterCategory", "expenseFilterStart", "expenseFilterEnd"].forEach((id) => {
+    $(id).addEventListener("input", renderExpenseManagement);
+    $(id).addEventListener("change", renderExpenseManagement);
+  });
+
+  $("clearExpenseFilters").addEventListener("click", () => {
+    $("expenseSearch").value = "";
+    $("expenseFilterCategory").value = "";
+    $("expenseFilterStart").value = "";
+    $("expenseFilterEnd").value = "";
+    renderExpenseManagement();
+  });
+
+  $("expensesTableBody").addEventListener("click", (e) => {
+    const editBtn = e.target.closest(".edit-expense");
+    const deleteBtn = e.target.closest(".delete-expense");
+    if (editBtn) {
+      const expense = state.expenses.find((item) => item.id === editBtn.dataset.id);
+      if (!expense) return;
+      $("expenseId").value = expense.id;
+      $("expenseDate").value = expense.date || todayISO();
+      $("expenseCategory").value = expense.category || "Miscellaneous";
+      $("expenseDescription").value = expense.description || "";
+      $("expenseAmount").value = expense.amount || "";
+      $("expensePaidBy").value = expense.paidBy || "";
+      $("expensePaymentMethod").value = expense.paymentMethod || "";
+      $("expenseReceiptNumber").value = expense.receiptNumber || "";
+      $("expenseNotes").value = expense.notes || "";
+      $("expenseSubmitBtn").textContent = "Save Expense";
+      $("expenseCancelBtn").hidden = false;
+      return;
+    }
+    if (deleteBtn) {
+      if (!requireUnlock()) return;
+      if (!confirm("Delete this expense?")) return;
+      state.expenses = state.expenses.filter((item) => item.id !== deleteBtn.dataset.id);
+      render();
+      scheduleSave();
+    }
+  });
+
+  $("downloadJsonBackup").addEventListener("click", () => downloadBackup("json"));
+  $("downloadZipBackup").addEventListener("click", () => downloadBackup("zip"));
+  $("downloadBeforeDelete").addEventListener("click", () => {
+    downloadBackup("json");
+    deleteBackupDownloaded = true;
+    renderBackupSettings();
+  });
+
+  $("restoreFile").addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    pendingRestoreState = null;
+    $("confirmRestoreBtn").disabled = true;
+    $("restorePreview").innerHTML = "";
+    if (!file) return;
+    try {
+      const text = await readBackupFile(file);
+      pendingRestoreState = validateBackupPayload(JSON.parse(text));
+      renderRestorePreview(pendingRestoreState);
+      $("confirmRestoreBtn").disabled = false;
+      showNotice("", true);
+    } catch (error) {
+      showNotice(error.message || "Invalid or corrupted backup file.", false);
+    }
+  });
+
+  $("confirmRestoreBtn").addEventListener("click", () => {
+    if (!pendingRestoreState) return;
+    if (!requireUnlock()) return;
+    if (!confirm("Restore this backup? Current records will be replaced. This action cannot be undone.")) return;
+    state = normalizeState(pendingRestoreState);
+    pendingRestoreState = null;
+    $("restoreFile").value = "";
+    $("restorePreview").innerHTML = "";
+    $("confirmRestoreBtn").disabled = true;
+    render();
+    scheduleSave();
+  });
+
+  $("autoBackupEnabled").addEventListener("change", () => {
+    if (!requireUnlock()) {
+      $("autoBackupEnabled").checked = state.settings.autoBackup.enabled;
+      return;
+    }
+    state.settings.autoBackup.enabled = $("autoBackupEnabled").checked;
+    renderBackupSettings();
+    scheduleSave();
+  });
+
+  $("autoBackupFrequency").addEventListener("change", () => {
+    if (!requireUnlock()) {
+      $("autoBackupFrequency").value = state.settings.autoBackup.frequency;
+      return;
+    }
+    state.settings.autoBackup.frequency = $("autoBackupFrequency").value;
+    renderBackupSettings();
+    scheduleSave();
+  });
+
+  $("deleteConfirmInput").addEventListener("input", renderBackupSettings);
+
+  $("safeDeleteBtn").addEventListener("click", () => {
+    if (!requireUnlock()) return;
+    if (!deleteBackupDownloaded || $("deleteConfirmInput").value.trim() !== "DELETE") return;
+    if (!confirm("This action cannot be undone. Delete all apartment tracker data?")) return;
+    state = defaultState();
+    deleteBackupDownloaded = false;
+    $("deleteConfirmInput").value = "";
+    render();
+    scheduleSave();
+  });
+
   $("manualResetBtn").addEventListener("click", () => {
     if (!requireUnlock()) return;
     if (confirm("End this cycle now and carry over any remaining balance?")) endCycle();
@@ -889,11 +1683,8 @@ function bindEvents() {
 
   $("clearAllBtn").addEventListener("click", () => {
     if (!requireUnlock()) return;
-    if (confirm("Clear everything: members, money in, expenses, bills, and carryover?")) {
-      state = defaultState();
-      render();
-      scheduleSave();
-    }
+    setActiveView("backup");
+    showNotice("Use the Danger Zone to download a backup, type DELETE, and confirm before clearing all data.", false);
   });
 
   $("electricityAmount").addEventListener("input", () => {
@@ -907,6 +1698,15 @@ function bindEvents() {
     scheduleSave();
   });
 
+  $("electricityDate").addEventListener("change", () => {
+    if (!requireUnlock()) {
+      render();
+      return;
+    }
+    state.bills.electricity.date = $("electricityDate").value || todayISO();
+    scheduleSave();
+  });
+
   $("waterAmount").addEventListener("input", () => {
     if (!requireUnlock()) {
       render();
@@ -915,6 +1715,15 @@ function bindEvents() {
     state.bills.water.amount = Number($("waterAmount").value || 0);
     renderBillInputs();
     renderBillDashboard();
+    scheduleSave();
+  });
+
+  $("waterDate").addEventListener("change", () => {
+    if (!requireUnlock()) {
+      render();
+      return;
+    }
+    state.bills.water.date = $("waterDate").value || todayISO();
     scheduleSave();
   });
 
@@ -981,10 +1790,12 @@ function renderBillInputs() {
     const summary = getBillData(key);
     const acMembers = new Set(bill.airconMembers || []);
     const amountInput = $(`${key}Amount`);
+    const dateInput = $(`${key}Date`);
     const summaryEl = $(`${key}Summary`);
     const totalsEl = $(`${key}Totals`);
 
     if (amountInput && document.activeElement !== amountInput) amountInput.value = bill.amount || "";
+    if (dateInput && document.activeElement !== dateInput) dateInput.value = bill.date || todayISO();
     if (summaryEl) {
       summaryEl.innerHTML = `
         <div><strong>${money(summary.bill.amount)}</strong><span>Total Bill Amount</span></div>
@@ -1076,12 +1887,171 @@ function renderBillDashboard() {
   $("billOutstandingTotal").textContent = money(totalOutstanding);
 }
 
+function renderReports() {
+  if (!$("reportsSummary")) return;
+  const data = reportData();
+  const cards = [
+    ["Total Income", money(data.summary.incomeTotal), "Money in within range"],
+    ["Total Expenses", money(data.summary.expenseTotal), "Expenses within range"],
+    ["Net Balance", money(data.summary.netBalance), "Income minus expenses"],
+    ["Total Members", data.summary.totalMembers, "Current members"],
+    ["Occupied Rooms", data.summary.occupiedRooms, "From rooms or member profiles"],
+    ["Vacant Rooms", data.summary.vacantRooms, "Known vacant rooms"],
+    ["Monthly Collections", money(data.summary.monthlyCollections), "Current paid shares"],
+    ["Overdue Payments", money(data.summary.overduePayments), "Unpaid member and bill shares"]
+  ];
+  $("reportsSummary").innerHTML = cards.map(([label, value, helper]) => `
+    <article class="summary-card">
+      <span>${escapeHTML(label)}</span>
+      <strong>${escapeHTML(value)}</strong>
+      <small>${escapeHTML(helper)}</small>
+    </article>
+  `).join("");
+
+  drawBarChart("incomeChart", sumByMonth(data.records.income), "#2563eb");
+  drawBarChart("expenseChart", sumByMonth(data.records.expenses), "#b42318");
+  drawDonutChart("categoryChart", sumByCategory(data.records.expenses));
+  drawDonutChart("collectionChart", [
+    ["Collected", data.summary.monthlyCollections],
+    ["Overdue", data.summary.overduePayments]
+  ]);
+
+  $("reportTransactionsBody").innerHTML = data.records.transactions.length
+    ? data.records.transactions.slice(0, 10).map((item) => `
+      <tr>
+        <td>${escapeHTML(item.date)}</td>
+        <td>${escapeHTML(item.type)}</td>
+        <td>${escapeHTML(item.description)}</td>
+        <td>${money(item.amount)}</td>
+      </tr>
+    `).join("")
+    : `<tr><td class="empty-row" colspan="4">No recent transactions for this range.</td></tr>`;
+
+  $("financialReportBody").innerHTML = `
+    <tr><th>Income</th><td>${money(data.summary.incomeTotal)}</td></tr>
+    <tr><th>Expenses</th><td>${money(data.summary.expenseTotal)}</td></tr>
+    <tr><th>Profit/Loss</th><td>${money(data.summary.netBalance)}</td></tr>
+    <tr><th>Income by Month</th><td>${sumByMonth(state.income).map(([label, value]) => `${label}: ${money(value)}`).join(", ") || "No income"}</td></tr>
+    <tr><th>Expenses by Month</th><td>${sumByMonth(state.expenses).map(([label, value]) => `${label}: ${money(value)}`).join(", ") || "No expenses"}</td></tr>
+    <tr><th>Expense by Category</th><td>${sumByCategory(state.expenses).map(([label, value]) => `${label}: ${money(value)}`).join(", ") || "No expenses"}</td></tr>
+  `;
+
+  const rooms = roomStats();
+  $("occupancyReportBody").innerHTML = `
+    <tr><th>Total Known Rooms</th><td>${rooms.total}</td></tr>
+    <tr><th>Occupied Rooms</th><td>${rooms.occupied}</td></tr>
+    <tr><th>Vacant Rooms</th><td>${rooms.vacant}</td></tr>
+    <tr><th>Payment Collection</th><td>${money(data.summary.monthlyCollections)}</td></tr>
+  `;
+
+  const overdueMembers = state.members.filter((member) => !member.paid);
+  $("overdueReportBody").innerHTML = overdueMembers.length
+    ? overdueMembers.map((member) => `
+      <tr>
+        <td>${escapeHTML(profileName(member))}</td>
+        <td>${escapeHTML(member.profile?.apartmentRoom || "No room")}</td>
+        <td>${money(AMOTAN_AMOUNT)}</td>
+      </tr>
+    `).join("")
+    : `<tr><td class="empty-row" colspan="3">No overdue member payments.</td></tr>`;
+}
+
+function expenseCategoryOptions(selected = "", includeAll = false) {
+  return [
+    ...(includeAll ? [`<option value="">All categories</option>`] : []),
+    ...EXPENSE_CATEGORIES.map((category) => `<option value="${escapeAttr(category)}" ${category === selected ? "selected" : ""}>${escapeHTML(category)}</option>`)
+  ].join("");
+}
+
+function resetExpenseForm() {
+  $("expenseId").value = "";
+  $("expenseDate").value = todayISO();
+  $("expenseCategory").value = "Miscellaneous";
+  $("expenseDescription").value = "";
+  $("expenseAmount").value = "";
+  $("expensePaidBy").value = "";
+  $("expensePaymentMethod").value = "";
+  $("expenseReceiptNumber").value = "";
+  $("expenseNotes").value = "";
+  $("expenseSubmitBtn").textContent = "Add Expense";
+  $("expenseCancelBtn").hidden = true;
+}
+
+function expenseFilters() {
+  return {
+    search: $("expenseSearch")?.value.trim().toLowerCase() || "",
+    category: $("expenseFilterCategory")?.value || "",
+    start: $("expenseFilterStart")?.value || "",
+    end: $("expenseFilterEnd")?.value || ""
+  };
+}
+
+function filteredExpenses() {
+  const filters = expenseFilters();
+  return state.expenses
+    .filter((expense) => {
+      const haystack = [expense.category, expense.description, expense.paidBy, expense.paymentMethod, expense.receiptNumber, expense.notes].join(" ").toLowerCase();
+      if (filters.search && !haystack.includes(filters.search)) return false;
+      if (filters.category && expense.category !== filters.category) return false;
+      if (filters.start && expense.date < filters.start) return false;
+      if (filters.end && expense.date > filters.end) return false;
+      return true;
+    })
+    .sort((a, b) => `${b.date || ""}${b.id}`.localeCompare(`${a.date || ""}${a.id}`));
+}
+
+function renderExpenseManagement() {
+  if (!$("expenseCategory")) return;
+  if (!$("expenseCategory").innerHTML) {
+    $("expenseCategory").innerHTML = expenseCategoryOptions("Miscellaneous");
+    $("expenseFilterCategory").innerHTML = expenseCategoryOptions("", true);
+    $("expenseDate").value = todayISO();
+  }
+  const expenses = filteredExpenses();
+  const total = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  $("expenseListSummary").textContent = `${expenses.length} expense${expenses.length === 1 ? "" : "s"} shown, ${money(total)} total.`;
+  $("expensesTableBody").innerHTML = expenses.length
+    ? expenses.map((expense) => `
+      <tr>
+        <td>${escapeHTML(expense.date)}</td>
+        <td>${escapeHTML(expense.category)}</td>
+        <td>
+          <strong>${escapeHTML(expense.description)}</strong>
+          ${expense.notes ? `<small>${escapeHTML(expense.notes)}</small>` : ""}
+        </td>
+        <td>${money(expense.amount)}</td>
+        <td>${escapeHTML(expense.paidBy || "-")}</td>
+        <td>${escapeHTML(expense.paymentMethod || "-")}</td>
+        <td>${escapeHTML(expense.receiptNumber || "-")}</td>
+        <td class="table-actions">
+          <button class="mini edit-expense" data-id="${expense.id}" type="button">Edit</button>
+          <button class="mini danger delete-expense" data-id="${expense.id}" type="button">Delete</button>
+        </td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="8" class="empty-row">No expenses match the current filters.</td></tr>`;
+}
+
+function renderBackupSettings() {
+  if (!$("autoBackupEnabled")) return;
+  const config = state.settings.autoBackup;
+  $("autoBackupEnabled").checked = config.enabled;
+  $("autoBackupFrequency").value = config.frequency;
+  $("autoBackupStatus").textContent = config.enabled
+    ? `Automatic backup is on (${config.frequency}). Last backup: ${config.lastRun ? new Date(config.lastRun).toLocaleString() : "not yet run"}.`
+    : "Automatic backup is off.";
+  $("safeDeleteBtn").disabled = $("deleteConfirmInput").value.trim() !== "DELETE" || !deleteBackupDownloaded;
+}
+
 function render() {
   renderSummary();
   renderMembers();
   renderTransactions();
   renderBillInputs();
   renderBillDashboard();
+  renderReports();
+  renderExpenseManagement();
+  renderBackupSettings();
   setEditState();
 }
 
