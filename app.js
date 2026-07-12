@@ -33,6 +33,21 @@ const LEGACY_LOCAL_KEYS = STORAGE_SCOPE ? [] : ["apartment-amotan-state-v4", "ap
 const FIRESTORE_COLLECTION = "budgetApp";
 const FIRESTORE_DOC_ID = "apartment-amotan-main";
 const FIRESTORE_DOC_PATH = `${FIRESTORE_COLLECTION}/${FIRESTORE_DOC_ID}`;
+const PROFILE_FIELDS = [
+  { key: "fullName", label: "Full Name", inputId: "profileFullName" },
+  { key: "nickname", label: "Nickname", inputId: "profileNickname" },
+  { key: "dateOfBirth", label: "Date of Birth", inputId: "profileDateOfBirth" },
+  { key: "gender", label: "Gender", inputId: "profileGender" },
+  { key: "phone", label: "Phone Number", inputId: "profilePhone" },
+  { key: "email", label: "Email", inputId: "profileEmail" },
+  { key: "occupation", label: "Occupation", inputId: "profileOccupation" },
+  { key: "emergencyContact", label: "Emergency Contact", inputId: "profileEmergencyContact" },
+  { key: "apartmentRoom", label: "Apartment / Room", inputId: "profileApartmentRoom" },
+  { key: "address", label: "Address", inputId: "profileAddress" },
+  { key: "facebook", label: "Facebook Link", inputId: "profileFacebook" },
+  { key: "notes", label: "Notes / Biography", inputId: "profileNotes" }
+];
+const PROFILE_PHOTO_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 const $ = (id) => document.getElementById(id);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -64,11 +79,40 @@ function defaultBill(name, key) {
   };
 }
 
+function defaultProfile() {
+  return PROFILE_FIELDS.reduce((profile, field) => {
+    profile[field.key] = "";
+    return profile;
+  }, { photo: "" });
+}
+
+function normalizeProfile(profile = {}) {
+  const next = defaultProfile();
+  for (const field of PROFILE_FIELDS) {
+    next[field.key] = String(profile?.[field.key] || "").trim();
+  }
+  next.photo = typeof profile?.photo === "string" ? profile.photo : "";
+  return next;
+}
+
+function normalizeMember(member = {}) {
+  const profile = normalizeProfile(member.profile || {});
+  return {
+    ...member,
+    id: member.id || uid(),
+    name: String(member.name || profile.fullName || "Unnamed Member").trim(),
+    paid: Boolean(member.paid),
+    profile
+  };
+}
+
 let state = defaultState();
 let unlocked = sessionStorage.getItem("amotUnlock") === "yes";
 let docRef = null;
 let saveTimer = null;
 let applyingRemote = false;
+let activeProfileMemberId = null;
+let editingProfileMemberId = null;
 
 function logFirestore(action, detail = "") {
   console.info(`[Firestore] ${action}: ${FIRESTORE_DOC_PATH}${detail ? ` (${detail})` : ""}`);
@@ -89,7 +133,7 @@ function normalizeState(data) {
   const next = {
     ...defaultState(),
     ...(data || {}),
-    members: Array.isArray(data?.members) ? data.members : [],
+    members: Array.isArray(data?.members) ? data.members.map(normalizeMember) : [],
     income: Array.isArray(data?.income) ? data.income : [],
     expenses: Array.isArray(data?.expenses) ? data.expenses : [],
     bills: {
@@ -155,6 +199,120 @@ function escapeHTML(text = "") {
   const div = document.createElement("div");
   div.textContent = String(text);
   return div.innerHTML;
+}
+
+function escapeAttr(text = "") {
+  return escapeHTML(text).replaceAll("\"", "&quot;");
+}
+
+function safeURL(url = "") {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  try {
+    const parsed = new URL(value, window.location.href);
+    return ["http:", "https:"].includes(parsed.protocol) ? parsed.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function profileName(member) {
+  return member.profile?.fullName || member.name;
+}
+
+function profileInitials(member) {
+  const source = profileName(member) || member.name || "?";
+  return source
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "?";
+}
+
+function avatarMarkup(member, sizeClass = "") {
+  const photo = member.profile?.photo;
+  if (photo) {
+    return `<img class="profile-avatar ${sizeClass}" src="${escapeAttr(photo)}" alt="${escapeAttr(profileName(member))}" />`;
+  }
+  return `<div class="profile-avatar default-avatar ${sizeClass}" aria-hidden="true">${escapeHTML(profileInitials(member))}</div>`;
+}
+
+function renderProfileValue(field, value) {
+  if (field.key === "facebook") {
+    const href = safeURL(value);
+    return href ? `<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHTML(value)}</a>` : escapeHTML(value);
+  }
+  if (field.key === "email") {
+    return `<a href="mailto:${escapeAttr(value)}">${escapeHTML(value)}</a>`;
+  }
+  if (field.key === "phone") {
+    return `<a href="tel:${escapeAttr(value)}">${escapeHTML(value)}</a>`;
+  }
+  return escapeHTML(value);
+}
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function resizeImageDataURL(dataURL) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxSide = 480;
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", 0.78));
+    };
+    img.onerror = () => resolve(dataURL);
+    img.src = dataURL;
+  });
+}
+
+async function profilePhotoFromFile(file) {
+  if (!file) return "";
+  if (!file.type.startsWith("image/")) throw new Error("Choose an image file for the profile photo.");
+  if (file.size > PROFILE_PHOTO_MAX_UPLOAD_BYTES) throw new Error("Profile photo must be 5 MB or smaller.");
+  return resizeImageDataURL(await readFileAsDataURL(file));
+}
+
+async function profileFromAddForm() {
+  const profile = defaultProfile();
+  for (const field of PROFILE_FIELDS) {
+    profile[field.key] = $(field.inputId)?.value.trim() || "";
+  }
+  const photoFile = $("profilePhoto")?.files?.[0];
+  profile.photo = photoFile ? await profilePhotoFromFile(photoFile) : "";
+  return profile;
+}
+
+async function profileFromEditForm(form, existingProfile) {
+  const profile = defaultProfile();
+  for (const field of PROFILE_FIELDS) {
+    profile[field.key] = form.elements[field.key]?.value.trim() || "";
+  }
+  profile.photo = form.elements.removePhoto?.checked ? "" : existingProfile.photo || "";
+  const photoFile = form.elements.photo?.files?.[0];
+  if (photoFile) profile.photo = await profilePhotoFromFile(photoFile);
+  return profile;
+}
+
+function resetProfileForm() {
+  for (const field of PROFILE_FIELDS) {
+    const input = $(field.inputId);
+    if (input) input.value = "";
+  }
+  if ($("profilePhoto")) $("profilePhoto").value = "";
 }
 
 function requireUnlock() {
@@ -314,15 +472,134 @@ function renderMembers() {
   }
 
   box.innerHTML = state.members.map((m) => `
-    <div class="member-row">
-      <label>
+    <div class="member-row" data-id="${m.id}" role="button" tabindex="0" aria-label="Open profile for ${escapeAttr(profileName(m))}">
+      <label class="paid-control">
         <input type="checkbox" class="member-paid" data-id="${m.id}" ${m.paid ? "checked" : ""} />
-        <span>${escapeHTML(m.name)}</span>
+        ${avatarMarkup(m, "avatar-sm")}
+        <span>${escapeHTML(profileName(m))}</span>
       </label>
       <strong>${m.paid ? money(AMOTAN_AMOUNT) : "Unpaid"}</strong>
       <button class="mini danger delete-member" data-id="${m.id}" type="button">Delete</button>
     </div>
   `).join("");
+}
+
+function profileFieldsHTML(member) {
+  const profile = member.profile || defaultProfile();
+  const rows = [
+    { label: "Member ID", value: member.id, key: "memberId" },
+    ...PROFILE_FIELDS
+      .filter((field) => field.key !== "fullName" && field.key !== "nickname" && field.key !== "notes")
+      .map((field) => ({ ...field, value: profile[field.key] }))
+  ].filter((field) => field.value);
+
+  const fieldRows = rows.map((field) => `
+    <div class="profile-field">
+      <span>${escapeHTML(field.label)}</span>
+      <strong>${renderProfileValue(field, field.value)}</strong>
+    </div>
+  `).join("");
+
+  const notes = profile.notes
+    ? `<section class="profile-section"><h3>Biography / Notes</h3><p>${escapeHTML(profile.notes)}</p></section>`
+    : "";
+
+  return `
+    <section class="profile-section">
+      <h3>Contact Information</h3>
+      <div class="profile-field-grid">${fieldRows || `<p class="empty-row">No optional profile details yet.</p>`}</div>
+    </section>
+    ${notes}
+  `;
+}
+
+function renderProfileView(member) {
+  const profile = member.profile || defaultProfile();
+  const nickname = profile.nickname ? `<p class="profile-nickname">${escapeHTML(profile.nickname)}</p>` : "";
+  $("profileModalBody").innerHTML = `
+    <div class="profile-view">
+      <div class="profile-hero">
+        ${avatarMarkup(member, "avatar-lg")}
+        <div>
+          <h3>${escapeHTML(profileName(member))}</h3>
+          ${nickname}
+          <p>${escapeHTML(member.name)} ${member.paid ? "has paid this cycle." : "is unpaid this cycle."}</p>
+        </div>
+      </div>
+      ${profileFieldsHTML(member)}
+      <div class="profile-actions">
+        <button id="editProfileBtn" class="primary-btn" type="button">Edit Profile</button>
+      </div>
+    </div>
+  `;
+}
+
+function editFieldHTML(field, profile) {
+  const value = escapeAttr(profile[field.key] || "");
+  if (field.key === "notes") {
+    return `<textarea name="${field.key}" placeholder="${escapeAttr(field.label)}">${escapeHTML(profile[field.key] || "")}</textarea>`;
+  }
+  const type = field.key === "dateOfBirth" ? "date" : field.key === "email" ? "email" : field.key === "facebook" ? "url" : field.key === "phone" ? "tel" : "text";
+  return `<input name="${field.key}" type="${type}" placeholder="${escapeAttr(field.label)}" value="${value}" autocomplete="off" />`;
+}
+
+function renderProfileEdit(member) {
+  const profile = member.profile || defaultProfile();
+  $("profileModalBody").innerHTML = `
+    <form id="profileEditForm" class="profile-edit-form">
+      <div class="profile-hero">
+        ${avatarMarkup(member, "avatar-lg")}
+        <div>
+          <label>
+            <span>Member Name</span>
+            <input name="memberName" type="text" value="${escapeAttr(member.name)}" required autocomplete="off" />
+          </label>
+          <p>Optional profile fields can be left blank.</p>
+        </div>
+      </div>
+      <div class="profile-form-grid">
+        ${PROFILE_FIELDS.map((field) => editFieldHTML(field, profile)).join("")}
+        <label class="photo-upload">
+          <span>Profile Photo</span>
+          <input name="photo" type="file" accept="image/*" />
+        </label>
+        ${profile.photo ? `
+          <label class="remove-photo">
+            <input name="removePhoto" type="checkbox" />
+            <span>Remove current photo</span>
+          </label>
+        ` : ""}
+      </div>
+      <div class="profile-actions">
+        <button class="primary-btn" type="submit">Save Profile</button>
+        <button id="cancelProfileEdit" class="secondary-btn" type="button">Cancel</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderProfileModal() {
+  const member = state.members.find((m) => m.id === activeProfileMemberId);
+  if (!member) {
+    closeProfileModal();
+    return;
+  }
+  $("profileModalTitle").textContent = profileName(member);
+  if (editingProfileMemberId === member.id) renderProfileEdit(member);
+  else renderProfileView(member);
+}
+
+function openProfileModal(memberId, edit = false) {
+  activeProfileMemberId = memberId;
+  editingProfileMemberId = edit ? memberId : null;
+  $("profileModal").hidden = false;
+  renderProfileModal();
+}
+
+function closeProfileModal() {
+  $("profileModal").hidden = true;
+  activeProfileMemberId = null;
+  editingProfileMemberId = null;
 }
 
 function renderTransactions() {
@@ -442,7 +719,7 @@ function bindEvents() {
     showNotice("Locked. Enter the password again to edit.", false);
   });
 
-  $("memberForm").addEventListener("submit", (e) => {
+  $("memberForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!requireUnlock()) return;
     const name = $("memberName").value.trim();
@@ -450,8 +727,16 @@ function bindEvents() {
       showNotice("Add a member name first.", false);
       return;
     }
-    state.members.push({ id: uid(), name, paid: false });
+    let profile;
+    try {
+      profile = await profileFromAddForm();
+    } catch (error) {
+      showNotice(error.message || "Profile photo could not be loaded.", false);
+      return;
+    }
+    state.members.push({ id: uid(), name, paid: false, profile });
     $("memberName").value = "";
+    resetProfileForm();
     showNotice("", true);
     render();
     scheduleSave();
@@ -471,16 +756,76 @@ function bindEvents() {
 
   $("membersList").addEventListener("click", (e) => {
     const btn = e.target.closest(".delete-member");
-    if (!btn) return;
-    if (!requireUnlock()) return;
-    const memberId = btn.dataset.id;
-    state.members = state.members.filter((m) => m.id !== memberId);
-    for (const bill of [state.bills.electricity, state.bills.water]) {
-      bill.members = bill.members.filter((id) => id !== memberId);
-      bill.paidMembers = bill.paidMembers.filter((id) => id !== memberId);
-      if (bill.airconMembers) bill.airconMembers = bill.airconMembers.filter((id) => id !== memberId);
+    if (btn) {
+      if (!requireUnlock()) return;
+      const memberId = btn.dataset.id;
+      state.members = state.members.filter((m) => m.id !== memberId);
+      for (const bill of [state.bills.electricity, state.bills.water]) {
+        bill.members = bill.members.filter((id) => id !== memberId);
+        bill.paidMembers = bill.paidMembers.filter((id) => id !== memberId);
+        if (bill.airconMembers) bill.airconMembers = bill.airconMembers.filter((id) => id !== memberId);
+      }
+      if (activeProfileMemberId === memberId) closeProfileModal();
+      render();
+      scheduleSave();
+      return;
     }
+
+    if (e.target.closest("label, input, button")) return;
+    const row = e.target.closest(".member-row");
+    if (row?.dataset.id) openProfileModal(row.dataset.id);
+  });
+
+  $("membersList").addEventListener("keydown", (e) => {
+    if (!["Enter", " "].includes(e.key)) return;
+    if (e.target.closest("label, input, button")) return;
+    const row = e.target.closest(".member-row");
+    if (!row?.dataset.id) return;
+    e.preventDefault();
+    openProfileModal(row.dataset.id);
+  });
+
+  $("closeProfileModal").addEventListener("click", closeProfileModal);
+
+  $("profileModal").addEventListener("click", (e) => {
+    if (e.target.id === "profileModal") closeProfileModal();
+  });
+
+  $("profileModalBody").addEventListener("click", (e) => {
+    if (e.target.closest("#editProfileBtn")) {
+      if (!requireUnlock()) return;
+      editingProfileMemberId = activeProfileMemberId;
+      renderProfileModal();
+      return;
+    }
+    if (e.target.closest("#cancelProfileEdit")) {
+      editingProfileMemberId = null;
+      renderProfileModal();
+    }
+  });
+
+  $("profileModalBody").addEventListener("submit", async (e) => {
+    if (e.target.id !== "profileEditForm") return;
+    e.preventDefault();
+    if (!requireUnlock()) return;
+    const member = state.members.find((m) => m.id === activeProfileMemberId);
+    if (!member) return;
+    const memberName = e.target.elements.memberName.value.trim();
+    if (!memberName) {
+      showNotice("Member name is required.", false);
+      return;
+    }
+    try {
+      member.name = memberName;
+      member.profile = await profileFromEditForm(e.target, member.profile || defaultProfile());
+    } catch (error) {
+      showNotice(error.message || "Profile photo could not be loaded.", false);
+      return;
+    }
+    editingProfileMemberId = null;
+    showNotice("", true);
     render();
+    renderProfileModal();
     scheduleSave();
   });
 

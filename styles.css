@@ -42,7 +42,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -51,7 +52,8 @@ button {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.22);
   outline-offset: 2px;
 }
@@ -265,15 +267,43 @@ h1 {
 }
 
 .inline-form,
+.member-form,
 .transaction-form,
 .admin-actions {
   padding: 0 20px 20px;
 }
 
-.inline-form {
+.inline-form,
+.member-form-primary {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
+}
+
+.member-form {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-fields {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: #f8fafc;
+}
+
+.profile-fields summary {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.profile-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 12px 12px;
 }
 
 .transaction-form {
@@ -325,7 +355,11 @@ h1 {
 
 input[type="text"],
 input[type="number"],
-input[type="date"] {
+input[type="date"],
+input[type="tel"],
+input[type="email"],
+input[type="url"],
+textarea {
   width: 100%;
   min-height: 44px;
   padding: 10px 12px;
@@ -337,17 +371,64 @@ input[type="date"] {
 }
 
 input[type="text"]::placeholder,
-input[type="number"]::placeholder {
+input[type="number"]::placeholder,
+textarea::placeholder {
   color: var(--muted-2);
 }
 
-input:hover {
+textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.profile-form-grid textarea {
+  grid-column: 1 / -1;
+}
+
+input:hover,
+textarea:hover {
   border-color: var(--border-strong);
 }
 
-input:focus {
+input:focus,
+textarea:focus {
   border-color: rgba(37, 99, 235, 0.45);
   box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+}
+
+.photo-upload,
+.remove-photo,
+.profile-edit-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.photo-upload span,
+.remove-photo span,
+.profile-edit-form label > span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.photo-upload input[type="file"] {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  color: var(--muted);
+}
+
+.remove-photo {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: #fff;
 }
 
 .primary-btn,
@@ -462,6 +543,15 @@ input:focus {
 
 .member-row {
   grid-template-columns: minmax(0, 1fr) auto auto;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.member-row:hover,
+.member-row:focus-visible {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-soft);
+  transform: translateY(-1px);
 }
 
 .member-row label {
@@ -470,6 +560,10 @@ input:focus {
   gap: 12px;
   min-width: 0;
   font-weight: 600;
+}
+
+.paid-control .profile-avatar {
+  flex: 0 0 auto;
 }
 
 .member-row span {
@@ -489,6 +583,36 @@ input:focus {
 .transaction-meta strong {
   color: var(--text);
   font-weight: 700;
+}
+
+.profile-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: #eef2f7;
+  color: #344054;
+  font-weight: 800;
+  object-fit: cover;
+}
+
+.avatar-sm {
+  width: 34px;
+  height: 34px;
+  font-size: 0.78rem;
+}
+
+.avatar-lg {
+  width: 96px;
+  height: 96px;
+  font-size: 1.55rem;
+}
+
+.default-avatar {
+  background: linear-gradient(180deg, #f8fafc 0%, #e4e7ec 100%);
 }
 
 .transaction-row {
@@ -773,6 +897,127 @@ input:focus {
   background: #f8fafc;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(17, 24, 39, 0.46);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.profile-modal {
+  width: min(720px, 100%);
+  max-height: min(86vh, 820px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+}
+
+.profile-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-modal-head h2 {
+  font-size: 1.2rem;
+}
+
+.profile-view,
+.profile-edit-form {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+}
+
+.profile-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+
+.profile-hero h3 {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+.profile-hero p,
+.profile-nickname {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.profile-section {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-section h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.profile-section p {
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.profile-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.profile-field {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: #f8fafc;
+}
+
+.profile-field span,
+.profile-field strong {
+  display: block;
+}
+
+.profile-field span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.profile-field strong {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+}
+
+.profile-field a {
+  color: var(--brand-2);
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .is-loading .panel,
 .is-loading .summary-card {
   opacity: 0.92;
@@ -818,11 +1063,14 @@ input:focus {
   .summary-grid,
   .bill-dashboard,
   .inline-form,
+  .member-form-primary,
   .transaction-form,
   .bill-controls,
   .bill-stat-grid,
   .bill-member-list,
-  .bill-lists {
+  .bill-lists,
+  .profile-form-grid,
+  .profile-field-grid {
     grid-template-columns: 1fr;
   }
 
@@ -841,6 +1089,19 @@ input:focus {
 
   .member-row strong {
     justify-self: start;
+  }
+
+  .profile-hero {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .profile-actions {
+    justify-content: stretch;
+  }
+
+  .profile-actions button {
+    flex: 1 1 auto;
   }
 }
 

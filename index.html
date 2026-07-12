@@ -24,6 +24,14 @@
       </div>
     </header>
 
+    <nav class="app-nav" aria-label="Main navigation">
+      <button class="nav-tab active" type="button" data-view="home">Tracker</button>
+      <button class="nav-tab" type="button" data-view="reports">Reports</button>
+      <button class="nav-tab" type="button" data-view="expenses">Expenses</button>
+      <button class="nav-tab" type="button" data-view="backup">Backup</button>
+    </nav>
+
+    <section id="homeView" class="app-view active" data-view-panel="home">
     <section class="summary-grid" aria-label="Budget summary">
       <article class="summary-card balance-card">
         <span>Available Balance</span>
@@ -82,9 +90,32 @@
           <span id="editState" class="pill">Locked</span>
         </div>
 
-        <form id="memberForm" class="inline-form">
-          <input id="memberName" type="text" placeholder="Add member name" autocomplete="off" />
-          <button type="submit" class="primary-btn">Add</button>
+        <form id="memberForm" class="member-form">
+          <div class="member-form-primary">
+            <input id="memberName" type="text" placeholder="Add member name" autocomplete="off" />
+            <button type="submit" class="primary-btn">Add</button>
+          </div>
+          <details class="profile-fields">
+            <summary>Optional member profile</summary>
+            <div class="profile-form-grid">
+              <input id="profileFullName" type="text" placeholder="Full Name" autocomplete="off" />
+              <input id="profileNickname" type="text" placeholder="Nickname" autocomplete="off" />
+              <input id="profileDateOfBirth" type="date" aria-label="Date of Birth" />
+              <input id="profileGender" type="text" placeholder="Gender" autocomplete="off" />
+              <input id="profilePhone" type="tel" placeholder="Phone Number" autocomplete="off" />
+              <input id="profileEmail" type="email" placeholder="Email" autocomplete="off" />
+              <input id="profileOccupation" type="text" placeholder="Occupation" autocomplete="off" />
+              <input id="profileEmergencyContact" type="text" placeholder="Emergency Contact" autocomplete="off" />
+              <input id="profileApartmentRoom" type="text" placeholder="Apartment / Room" autocomplete="off" />
+              <input id="profileAddress" type="text" placeholder="Address" autocomplete="off" />
+              <input id="profileFacebook" type="url" placeholder="Facebook Link" autocomplete="off" />
+              <label class="photo-upload">
+                <span>Profile Photo</span>
+                <input id="profilePhoto" type="file" accept="image/*" />
+              </label>
+              <textarea id="profileNotes" placeholder="Notes / Biography"></textarea>
+            </div>
+          </details>
         </form>
 
         <div id="membersList" class="member-list"></div>
@@ -248,7 +279,206 @@
         <button id="clearAllBtn" class="danger-btn" type="button">Clear Everything</button>
       </div>
     </section>
+    </section>
+
+    <section id="reportsView" class="app-view" data-view-panel="reports" hidden>
+      <section class="panel reports-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Reports Dashboard</h2>
+            <p>Review income, expenses, collections, occupancy, and overdue balances.</p>
+          </div>
+          <div class="report-actions">
+            <button id="exportPdfBtn" class="secondary-btn" type="button">PDF</button>
+            <button id="exportExcelBtn" class="secondary-btn" type="button">Excel</button>
+            <button id="exportCsvBtn" class="secondary-btn" type="button">CSV</button>
+          </div>
+        </div>
+        <div class="report-controls">
+          <div class="segmented" role="radiogroup" aria-label="Report period">
+            <label><input type="radio" name="reportPeriod" value="daily" /><span>Daily</span></label>
+            <label><input type="radio" name="reportPeriod" value="weekly" /><span>Weekly</span></label>
+            <label><input type="radio" name="reportPeriod" value="monthly" checked /><span>Monthly</span></label>
+            <label><input type="radio" name="reportPeriod" value="yearly" /><span>Yearly</span></label>
+            <label><input type="radio" name="reportPeriod" value="custom" /><span>Custom</span></label>
+          </div>
+          <input id="reportStartDate" type="date" aria-label="Report start date" />
+          <input id="reportEndDate" type="date" aria-label="Report end date" />
+        </div>
+        <div id="reportsSummary" class="summary-grid report-card-grid"></div>
+        <div class="report-grid">
+          <article class="panel chart-panel">
+            <div class="panel-heading compact"><h2>Income by Month</h2></div>
+            <canvas id="incomeChart" class="report-chart" width="480" height="260"></canvas>
+          </article>
+          <article class="panel chart-panel">
+            <div class="panel-heading compact"><h2>Expenses by Month</h2></div>
+            <canvas id="expenseChart" class="report-chart" width="480" height="260"></canvas>
+          </article>
+          <article class="panel chart-panel">
+            <div class="panel-heading compact"><h2>Expense by Category</h2></div>
+            <canvas id="categoryChart" class="report-chart" width="480" height="260"></canvas>
+          </article>
+          <article class="panel chart-panel">
+            <div class="panel-heading compact"><h2>Collection Status</h2></div>
+            <canvas id="collectionChart" class="report-chart" width="480" height="260"></canvas>
+          </article>
+        </div>
+        <div class="report-tables">
+          <article class="panel">
+            <div class="panel-heading compact"><h2>Recent Transactions</h2></div>
+            <div class="responsive-table"><table class="data-table"><tbody id="reportTransactionsBody"></tbody></table></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading compact"><h2>Financial Summary</h2></div>
+            <div class="responsive-table"><table class="data-table"><tbody id="financialReportBody"></tbody></table></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading compact"><h2>Occupancy Report</h2></div>
+            <div class="responsive-table"><table class="data-table"><tbody id="occupancyReportBody"></tbody></table></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading compact"><h2>Overdue Tenants Report</h2></div>
+            <div class="responsive-table"><table class="data-table"><tbody id="overdueReportBody"></tbody></table></div>
+          </article>
+        </div>
+      </section>
+    </section>
+
+    <section id="expensesView" class="app-view" data-view-panel="expenses" hidden>
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Expense Management</h2>
+            <p>Add, update, search, and filter apartment expenses.</p>
+          </div>
+        </div>
+        <form id="expenseForm" class="expense-form">
+          <input id="expenseId" type="hidden" />
+          <input id="expenseDate" type="date" aria-label="Expense date" />
+          <select id="expenseCategory" aria-label="Expense category"></select>
+          <input id="expenseDescription" type="text" placeholder="Description" autocomplete="off" />
+          <input id="expenseAmount" type="number" min="0.01" step="0.01" placeholder="Amount" />
+          <input id="expensePaidBy" type="text" placeholder="Paid By" autocomplete="off" />
+          <input id="expensePaymentMethod" type="text" placeholder="Payment Method" autocomplete="off" />
+          <input id="expenseReceiptNumber" type="text" placeholder="Receipt Number (optional)" autocomplete="off" />
+          <textarea id="expenseNotes" placeholder="Notes"></textarea>
+          <div class="form-actions">
+            <button id="expenseSubmitBtn" class="danger-btn" type="submit">Add Expense</button>
+            <button id="expenseCancelBtn" class="secondary-btn" type="button" hidden>Cancel Edit</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel expense-list-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Expenses</h2>
+            <p id="expenseListSummary">No expenses yet.</p>
+          </div>
+        </div>
+        <div class="expense-filters">
+          <input id="expenseSearch" type="text" placeholder="Search expenses" autocomplete="off" />
+          <select id="expenseFilterCategory" aria-label="Filter by category"></select>
+          <input id="expenseFilterStart" type="date" aria-label="Filter start date" />
+          <input id="expenseFilterEnd" type="date" aria-label="Filter end date" />
+          <button id="clearExpenseFilters" class="secondary-btn" type="button">Clear</button>
+        </div>
+        <div class="responsive-table">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Amount</th>
+                <th>Paid By</th>
+                <th>Method</th>
+                <th>Receipt</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="expensesTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section id="backupView" class="app-view" data-view-panel="backup" hidden>
+      <section class="backup-grid">
+        <article class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Backup</h2>
+              <p>Download a complete copy of everything stored by the tracker.</p>
+            </div>
+          </div>
+          <div class="backup-actions">
+            <button id="downloadJsonBackup" class="primary-btn" type="button">Download JSON</button>
+            <button id="downloadZipBackup" class="secondary-btn" type="button">Download ZIP</button>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Restore Backup</h2>
+              <p>Upload a previous JSON or ZIP backup and preview it before restoring.</p>
+            </div>
+          </div>
+          <div class="backup-actions">
+            <input id="restoreFile" type="file" accept=".json,.zip,application/json,application/zip" />
+            <div id="restorePreview" class="restore-preview"></div>
+            <button id="confirmRestoreBtn" class="warn-btn" type="button" disabled>Restore Backup</button>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Automatic Backup</h2>
+              <p>Save scheduled local backups from this browser.</p>
+            </div>
+          </div>
+          <div class="settings-form">
+            <label class="toggle-row">
+              <input id="autoBackupEnabled" type="checkbox" />
+              <span>Enable Automatic Backup</span>
+            </label>
+            <select id="autoBackupFrequency" aria-label="Automatic backup frequency">
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+            <p id="autoBackupStatus" class="helper-text">Automatic backup is off.</p>
+          </div>
+        </article>
+        <article class="panel danger-zone">
+          <div class="panel-heading">
+            <div>
+              <h2>Danger Zone</h2>
+              <p>This action cannot be undone.</p>
+            </div>
+          </div>
+          <div class="backup-actions">
+            <button id="downloadBeforeDelete" class="secondary-btn" type="button">Download Backup</button>
+            <input id="deleteConfirmInput" type="text" placeholder="Type DELETE to enable clearing all data" autocomplete="off" />
+            <button id="safeDeleteBtn" class="danger-btn" type="button" disabled>Delete All Data</button>
+          </div>
+        </article>
+      </section>
+    </section>
   </main>
+
+  <div id="profileModal" class="modal-backdrop" hidden>
+    <section class="profile-modal" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
+      <div class="profile-modal-head">
+        <div>
+          <p class="eyebrow">Member Profile</p>
+          <h2 id="profileModalTitle">Profile</h2>
+        </div>
+        <button id="closeProfileModal" class="ghost-btn" type="button" aria-label="Close profile">Close</button>
+      </div>
+      <div id="profileModalBody"></div>
+    </section>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>
