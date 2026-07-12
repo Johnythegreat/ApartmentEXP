@@ -440,6 +440,21 @@ function monthKey(dateValue) {
   return (dateValue || todayISO()).slice(0, 7);
 }
 
+function ageFromBirthday(dateValue) {
+  const birthday = parseDate(dateValue);
+  if (!birthday) return "";
+  const today = new Date();
+  let age = today.getFullYear() - birthday.getFullYear();
+  const monthDelta = today.getMonth() - birthday.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birthday.getDate())) age--;
+  return age >= 0 ? String(age) : "";
+}
+
+function prettyDate(dateValue) {
+  const date = parseDate(dateValue);
+  return date ? date.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "";
+}
+
 function getReportRange() {
   const period = document.querySelector('input[name="reportPeriod"]:checked')?.value || "monthly";
   const today = startOfDay(new Date());
@@ -1364,6 +1379,21 @@ function bindEvents() {
   $("exportPdfBtn").addEventListener("click", exportReportPDF);
   $("exportExcelBtn").addEventListener("click", exportReportExcel);
 
+  $("memberInfoSearch").addEventListener("input", renderMembersInfo);
+  $("clearMemberInfoSearch").addEventListener("click", () => {
+    $("memberInfoSearch").value = "";
+    renderMembersInfo();
+  });
+  $("membersInfoBody").addEventListener("click", (e) => {
+    const viewBtn = e.target.closest(".view-member-info");
+    const editBtn = e.target.closest(".edit-member-info");
+    if (viewBtn) openProfileModal(viewBtn.dataset.id);
+    if (editBtn) {
+      if (!requireUnlock()) return;
+      openProfileModal(editBtn.dataset.id, true);
+    }
+  });
+
   $("memberForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!requireUnlock()) return;
@@ -2032,6 +2062,57 @@ function renderExpenseManagement() {
     : `<tr><td colspan="8" class="empty-row">No expenses match the current filters.</td></tr>`;
 }
 
+function renderMembersInfo() {
+  if (!$("membersInfoBody")) return;
+  const search = $("memberInfoSearch")?.value.trim().toLowerCase() || "";
+  const members = state.members
+    .filter((member) => {
+      const profile = member.profile || {};
+      const haystack = [
+        member.name,
+        profile.fullName,
+        profile.nickname,
+        profile.dateOfBirth,
+        profile.apartmentRoom,
+        profile.phone,
+        profile.email,
+        profile.emergencyContact,
+        profile.occupation
+      ].join(" ").toLowerCase();
+      return !search || haystack.includes(search);
+    })
+    .sort((a, b) => profileName(a).localeCompare(profileName(b)));
+
+  $("membersInfoBody").innerHTML = members.length
+    ? members.map((member) => {
+      const profile = member.profile || defaultProfile();
+      return `
+        <tr>
+          <td>
+            <div class="member-info-name">
+              ${avatarMarkup(member, "avatar-sm")}
+              <div>
+                <strong>${escapeHTML(profileName(member))}</strong>
+                <small>${escapeHTML(profile.nickname || member.name)}</small>
+              </div>
+            </div>
+          </td>
+          <td>${escapeHTML(prettyDate(profile.dateOfBirth) || "-")}</td>
+          <td>${escapeHTML(ageFromBirthday(profile.dateOfBirth) || "-")}</td>
+          <td>${escapeHTML(profile.apartmentRoom || "-")}</td>
+          <td>${profile.phone ? renderProfileValue({ key: "phone" }, profile.phone) : "-"}</td>
+          <td>${profile.email ? renderProfileValue({ key: "email" }, profile.email) : "-"}</td>
+          <td>${escapeHTML(profile.emergencyContact || "-")}</td>
+          <td class="table-actions">
+            <button class="mini view-member-info" data-id="${member.id}" type="button">View</button>
+            <button class="mini edit-member-info" data-id="${member.id}" type="button">Edit</button>
+          </td>
+        </tr>
+      `;
+    }).join("")
+    : `<tr><td colspan="8" class="empty-row">No members match the current search.</td></tr>`;
+}
+
 function renderBackupSettings() {
   if (!$("autoBackupEnabled")) return;
   const config = state.settings.autoBackup;
@@ -2049,6 +2130,7 @@ function render() {
   renderTransactions();
   renderBillInputs();
   renderBillDashboard();
+  renderMembersInfo();
   renderReports();
   renderExpenseManagement();
   renderBackupSettings();

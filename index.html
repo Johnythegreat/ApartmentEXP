@@ -11,7 +11,7 @@
     <header class="topbar">
       <div>
         <p class="eyebrow">Apartment Budget</p>
-        <h1>Amotan Tracker</h1>
+        <h1>Dashboard</h1>
         <p class="subtitle">Simple shared tracker for ₱700 member payments, money in, expenses, and sobra.</p>
       </div>
       <div class="topbar-actions">
@@ -26,6 +26,7 @@
 
     <nav class="app-nav" aria-label="Main navigation">
       <button class="nav-tab active" type="button" data-view="home">Tracker</button>
+      <button class="nav-tab" type="button" data-view="membersInfo">Members Info</button>
       <button class="nav-tab" type="button" data-view="reports">Reports</button>
       <button class="nav-tab" type="button" data-view="expenses">Expenses</button>
       <button class="nav-tab" type="button" data-view="backup">Backup</button>
@@ -279,6 +280,38 @@
         <button id="clearAllBtn" class="danger-btn" type="button">Clear Everything</button>
       </div>
     </section>
+    </section>
+
+    <section id="membersInfoView" class="app-view" data-view-panel="membersInfo" hidden>
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Members Info</h2>
+            <p>View member profiles, birthdays, rooms, and contact details.</p>
+          </div>
+        </div>
+        <div class="expense-filters">
+          <input id="memberInfoSearch" type="text" placeholder="Search members" autocomplete="off" />
+          <button id="clearMemberInfoSearch" class="secondary-btn" type="button">Clear</button>
+        </div>
+        <div class="responsive-table">
+          <table class="data-table members-info-table">
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Birthday</th>
+                <th>Age</th>
+                <th>Room</th>
+                <th>Phone</th>
+                <th>Email</th>
+                <th>Emergency Contact</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="membersInfoBody"></tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
     <section id="reportsView" class="app-view" data-view-panel="reports" hidden>
