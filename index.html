@@ -24,12 +24,20 @@
       </div>
     </header>
 
+
+    <section class="announcements-board" aria-labelledby="announcementsTitle">
+      <div class="announcements-heading"><div><p class="eyebrow">Community updates</p><h2 id="announcementsTitle">Announcements</h2></div><button id="viewAllAnnouncements" class="secondary-btn" type="button">View all announcements</button></div>
+      <div id="announcementList" class="announcement-list"><p class="helper-text">Loading announcements…</p></div>
+      <form id="announcementSubscribeForm" class="announcement-subscribe"><label><span>Get new announcements by email</span><input id="announcementEmail" type="email" required placeholder="you@example.com" autocomplete="email"></label><button class="primary-btn" type="submit">Subscribe</button><p id="subscriptionMessage" class="helper-text" aria-live="polite"></p></form>
+    </section>
+
     <nav class="app-nav" aria-label="Main navigation">
       <button class="nav-tab active" type="button" data-view="home">Tracker</button>
       <button class="nav-tab" type="button" data-view="membersInfo">Members Info</button>
       <button class="nav-tab" type="button" data-view="reports">Reports</button>
       <button class="nav-tab" type="button" data-view="expenses">Expenses</button>
       <button class="nav-tab" type="button" data-view="backup">Backup</button>
+      <button class="nav-tab" type="button" data-view="announcementsAdmin">Announcements Admin</button>
     </nav>
 
     <section id="homeView" class="app-view active" data-view-panel="home">
@@ -498,6 +506,18 @@
         </article>
       </section>
     </section>
+
+    <section id="announcementsAdminView" class="app-view" data-view-panel="announcementsAdmin" hidden>
+      <section class="panel announcement-admin">
+        <div class="panel-heading"><div><h2>Announcements Admin</h2><p>Sign in with an authorized Firebase account.</p></div><button id="announcementSignOut" class="ghost-btn" type="button" hidden>Sign out</button></div>
+        <form id="announcementLogin" class="announcement-login"><input id="adminEmail" type="email" required placeholder="Admin email"><input id="adminPassword" type="password" required placeholder="Password"><button class="primary-btn">Sign in</button></form>
+        <form id="announcementEditor" hidden>
+          <input id="announcementId" type="hidden"><div class="profile-form-grid"><input id="announcementTitleInput" required placeholder="Title"><input id="announcementAuthor" required placeholder="Author"><select id="announcementPriority"><option>Normal</option><option>Important</option><option>Urgent</option></select><input id="announcementSchedule" type="datetime-local"><label class="toggle-row"><input id="announcementPinned" type="checkbox"><span>Pin announcement</span></label><label class="toggle-row"><input id="announcementNotify" type="checkbox"><span>Send notification when published</span></label><textarea id="announcementMessage" required placeholder="Announcement message"></textarea></div>
+          <div class="form-actions"><button type="button" id="previewAnnouncement" class="secondary-btn">Preview</button><button type="submit" data-action="draft" class="secondary-btn">Save draft</button><button type="submit" data-action="publish" class="primary-btn">Publish / Schedule</button></div>
+        </form><div id="announcementPreview" class="announcement-preview" hidden></div><div id="adminAnnouncementList" class="announcement-list"></div>
+      </section>
+    </section>
+
   </main>
 
   <div id="profileModal" class="modal-backdrop" hidden>
@@ -514,5 +534,6 @@
   </div>
 
   <script type="module" src="app.js"></script>
+  <script type="module" src="announcements.js"></script>
 </body>
 </html>
