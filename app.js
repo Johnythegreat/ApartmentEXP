@@ -713,11 +713,26 @@ function roomStats() {
 function reportRecords(range = getReportRange()) {
   const income = state.income.filter((item) => inRange(item.date, range));
   const expenses = state.expenses.filter((item) => inRange(item.date, range));
+  const totals = calcTotals();
+  const cycleStart = parseDate(state.cycleStarted) || startOfDay(new Date());
+  const rangeOverlapsCurrentCycle = cycleStart <= range.end && endOfDay(new Date()) >= range.start;
+  const amotanIncome = totals.amotanTotal > 0 && rangeOverlapsCurrentCycle
+    ? {
+      id: "current-cycle-amotan",
+      amount: totals.amotanTotal,
+      description: `Amotan collections (${totals.paidMembers} paid member${totals.paidMembers === 1 ? "" : "s"})`,
+      date: todayISO(),
+      category: "Member Amotan",
+      type: "Income",
+      isAmotan: true
+    }
+    : null;
+  const reportIncome = amotanIncome ? [...income, amotanIncome] : income;
   const transactions = [
-    ...income.map((item) => ({ ...item, type: "Income", category: "Income" })),
+    ...reportIncome.map((item) => ({ ...item, type: "Income", category: item.category || "Income" })),
     ...expenses.map((item) => ({ ...item, type: "Expense" }))
   ].sort((a, b) => `${b.date || ""}${b.id}`.localeCompare(`${a.date || ""}${a.id}`));
-  return { income, expenses, transactions };
+  return { income: reportIncome, expenses, transactions, amotanIncome };
 }
 
 function reportData() {
@@ -733,6 +748,7 @@ function reportData() {
     records,
     summary: {
       incomeTotal,
+      amotanIncome: Number(records.amotanIncome?.amount || 0),
       expenseTotal,
       netBalance: incomeTotal - expenseTotal,
       totalMembers: state.members.length,
@@ -879,6 +895,7 @@ function buildReportRows() {
     ["Report Date", todayISO()],
     ["Selected Date Range", rangeText],
     ["Total Income", data.summary.incomeTotal],
+    ["Amotan Collections", data.summary.amotanIncome],
     ["Total Expenses", data.summary.expenseTotal],
     ["Profit/Loss", data.summary.netBalance],
     ["Total Members", data.summary.totalMembers],
@@ -2262,7 +2279,7 @@ function renderReports() {
   `;
 
   const cards = [
-    ["Money Received", money(data.summary.incomeTotal), "Income added during the selected dates"],
+    ["Money Received", money(data.summary.incomeTotal), `Includes ${money(data.summary.amotanIncome)} from paid \u20B1700 amotan`],
     ["Money Spent", money(data.summary.expenseTotal), "Expenses recorded during the selected dates"],
     ["Money Left", money(data.summary.netBalance), "Received minus spent for this period"],
     ["Residents", data.summary.totalMembers, "Members currently saved"],
@@ -2300,6 +2317,7 @@ function renderReports() {
 
   $("financialReportBody").innerHTML = `
     <tr><th>Money received</th><td>${money(data.summary.incomeTotal)}</td></tr>
+    <tr><th>From \u20B1700 amotan</th><td>${money(data.summary.amotanIncome)}</td></tr>
     <tr><th>Money spent</th><td>${money(data.summary.expenseTotal)}</td></tr>
     <tr><th>Difference</th><td>${money(data.summary.netBalance)}</td></tr>
     <tr><th>What it means</th><td>${escapeHTML(netText)}</td></tr>
