@@ -738,6 +738,7 @@ function reportRecords(range = getReportRange()) {
 function reportData() {
   const range = getReportRange();
   const records = reportRecords(range);
+  const trackerTotals = calcTotals();
   const incomeTotal = records.income.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const expenseTotal = records.expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const rooms = roomStats();
@@ -749,8 +750,10 @@ function reportData() {
     summary: {
       incomeTotal,
       amotanIncome: Number(records.amotanIncome?.amount || 0),
+      carryover: Number(state.carryover || 0),
       expenseTotal,
       netBalance: incomeTotal - expenseTotal,
+      availableBalance: trackerTotals.remaining,
       totalMembers: state.members.length,
       occupiedRooms: rooms.occupied,
       vacantRooms: rooms.vacant,
@@ -896,8 +899,10 @@ function buildReportRows() {
     ["Selected Date Range", rangeText],
     ["Total Income", data.summary.incomeTotal],
     ["Amotan Collections", data.summary.amotanIncome],
+    ["Carried Sobra", data.summary.carryover],
     ["Total Expenses", data.summary.expenseTotal],
     ["Profit/Loss", data.summary.netBalance],
+    ["Available Balance", data.summary.availableBalance],
     ["Total Members", data.summary.totalMembers],
     ["Total Occupied Rooms", data.summary.occupiedRooms],
     ["Total Vacant Rooms", data.summary.vacantRooms],
@@ -2252,14 +2257,15 @@ function renderReports() {
   const netText = data.summary.netBalance >= 0
     ? `You received ${money(data.summary.netBalance)} more than you spent in this period.`
     : `You spent ${money(Math.abs(data.summary.netBalance))} more than you received in this period.`;
+  const balanceText = `The report and Tracker available balance are both ${money(data.summary.availableBalance)}. This includes ${money(data.summary.carryover)} carried sobra.`;
 
   $("reportRangeLabel").textContent = `${rangeStart} to ${rangeEnd}`;
-  $("reportPlainSummary").textContent = netText;
+  $("reportPlainSummary").textContent = `${balanceText} ${netText}`;
   $("reportInsights").innerHTML = `
-    <article class="report-insight ${data.summary.netBalance >= 0 ? "is-positive" : "is-warning"}">
-      <span>Cash flow</span>
-      <strong>${data.summary.netBalance >= 0 ? "Money is ahead" : "Spending is ahead"}</strong>
-      <p>${escapeHTML(netText)}</p>
+    <article class="report-insight ${data.summary.availableBalance >= 0 ? "is-positive" : "is-warning"}">
+      <span>Available balance</span>
+      <strong>${money(data.summary.availableBalance)}</strong>
+      <p>Matches the Tracker and includes ${money(data.summary.carryover)} carried sobra.</p>
     </article>
     <article class="report-insight">
       <span>Collection progress</span>
@@ -2281,7 +2287,9 @@ function renderReports() {
   const cards = [
     ["Money Received", money(data.summary.incomeTotal), `Includes ${money(data.summary.amotanIncome)} from paid \u20B1700 amotan`],
     ["Money Spent", money(data.summary.expenseTotal), "Expenses recorded during the selected dates"],
-    ["Money Left", money(data.summary.netBalance), "Received minus spent for this period"],
+    ["Period Difference", money(data.summary.netBalance), "Money received minus money spent for the selected dates"],
+    ["Carried Sobra", money(data.summary.carryover), "Balance brought forward from the previous cycle"],
+    ["Available Balance", money(data.summary.availableBalance), "Matches the Available Balance shown on the Tracker"],
     ["Residents", data.summary.totalMembers, "Members currently saved"],
     ["Rooms Occupied", data.summary.occupiedRooms, "Rooms assigned to residents"],
     ["Rooms Vacant", data.summary.vacantRooms, "Known rooms without residents"],
@@ -2318,8 +2326,10 @@ function renderReports() {
   $("financialReportBody").innerHTML = `
     <tr><th>Money received</th><td>${money(data.summary.incomeTotal)}</td></tr>
     <tr><th>From \u20B1700 amotan</th><td>${money(data.summary.amotanIncome)}</td></tr>
+    <tr><th>Carried sobra</th><td>${money(data.summary.carryover)}</td></tr>
     <tr><th>Money spent</th><td>${money(data.summary.expenseTotal)}</td></tr>
-    <tr><th>Difference</th><td>${money(data.summary.netBalance)}</td></tr>
+    <tr><th>Period difference</th><td>${money(data.summary.netBalance)}</td></tr>
+    <tr><th>Available balance</th><td><strong>${money(data.summary.availableBalance)}</strong> (matches Tracker)</td></tr>
     <tr><th>What it means</th><td>${escapeHTML(netText)}</td></tr>
     <tr><th>Top expense category</th><td>${topCategory ? `${escapeHTML(topCategory[0])}: ${money(topCategory[1])}` : "No expenses in this period"}</td></tr>
     <tr><th>Collection progress</th><td>${collectionRate}% of current dues collected</td></tr>
