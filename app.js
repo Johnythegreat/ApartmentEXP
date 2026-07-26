@@ -62,6 +62,8 @@ const EXPENSE_CATEGORIES = [
 ];
 const REPORT_EXPORT_NAME = "apartment-report";
 const BACKUP_EXPORT_NAME = "apartment-tracker-backup";
+const ANNOUNCEMENT_PRIORITIES = ["normal", "important", "urgent"];
+const ANNOUNCEMENT_STATUSES = ["draft", "published", "scheduled", "archived"];
 
 const $ = (id) => document.getElementById(id);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -70,6 +72,7 @@ const money = (value) => `₱${Number(value || 0).toLocaleString("en-PH", { mini
 
 const defaultState = () => ({
   members: [],
+  announcements: [],
   income: [],
   expenses: [],
   bills: {
@@ -131,6 +134,27 @@ function normalizeMember(member = {}) {
     name: String(member.name || profile.fullName || "Unnamed Member").trim(),
     paid: Boolean(member.paid),
     profile
+  };
+}
+
+function normalizeAnnouncement(item = {}) {
+  const priority = ANNOUNCEMENT_PRIORITIES.includes(item.priority) ? item.priority : "normal";
+  const status = ANNOUNCEMENT_STATUSES.includes(item.status) ? item.status : "draft";
+  const createdAt = item.createdAt || new Date().toISOString();
+  return {
+    ...item,
+    id: item.id || uid(),
+    title: String(item.title ?? "Untitled announcement").trim(),
+    message: String(item.message || "").trim(),
+    author: String(item.author || "Apartment Admin").trim(),
+    priority,
+    status,
+    pinned: Boolean(item.pinned),
+    date: item.date || todayISO(),
+    scheduledAt: item.scheduledAt || "",
+    publishedAt: item.publishedAt || "",
+    createdAt,
+    updatedAt: item.updatedAt || createdAt
   };
 }
 
@@ -199,6 +223,7 @@ let editingProfileMemberId = null;
 let activeView = "home";
 let pendingRestoreState = null;
 let deleteBackupDownloaded = false;
+let showAllAnnouncements = false;
 
 function logFirestore(action, detail = "") {
   console.info(`[Firestore] ${action}: ${FIRESTORE_DOC_PATH}${detail ? ` (${detail})` : ""}`);
@@ -207,6 +232,7 @@ function logFirestore(action, detail = "") {
 function hasMeaningfulLocalData(localState) {
   return Boolean(
     localState.members?.length ||
+    localState.announcements?.length ||
     localState.income?.length ||
     localState.expenses?.length ||
     localState.carryover ||
@@ -220,6 +246,7 @@ function normalizeState(data) {
     ...defaultState(),
     ...(data || {}),
     members: Array.isArray(data?.members) ? data.members.map(normalizeMember) : [],
+    announcements: Array.isArray(data?.announcements) ? data.announcements.map(normalizeAnnouncement) : [],
     income: Array.isArray(data?.income) ? data.income.map(normalizeIncome) : [],
     expenses: Array.isArray(data?.expenses) ? data.expenses.map(normalizeExpense) : [],
     bills: {
@@ -455,6 +482,181 @@ function prettyDate(dateValue) {
   return date ? date.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "";
 }
 
+function announcementIsPublic(announcement) {
+  if (announcement.status === "published") return true;
+  if (announcement.status !== "scheduled" || !announcement.scheduledAt) return false;
+  return new Date(announcement.scheduledAt).getTime() <= Date.now();
+}
+
+function announcementTimestamp(announcement) {
+  const value = announcement.status === "scheduled" && announcement.scheduledAt
+    ? announcement.scheduledAt
+    : announcement.publishedAt || `${announcement.date || todayISO()}T00:00:00`;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function publishedAnnouncements() {
+  return state.announcements
+    .filter(announcementIsPublic)
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || announcementTimestamp(b) - announcementTimestamp(a));
+}
+
+function announcementPriorityLabel(priority) {
+  return priority === "urgent" ? "Urgent" : priority === "important" ? "Important" : "Normal";
+}
+
+function announcementDisplayDate(announcement) {
+  const date = announcement.status === "scheduled" && announcement.scheduledAt
+    ? new Date(announcement.scheduledAt)
+    : parseDate(announcement.date) || new Date(announcement.publishedAt || announcement.createdAt);
+  return date.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function announcementCardMarkup(announcement, compact = false) {
+  return `
+    <article class="announcement-item priority-${announcement.priority} ${announcement.pinned ? "is-pinned" : ""}">
+      <div class="announcement-item-head">
+        <div class="announcement-labels">
+          <span class="priority-label priority-${announcement.priority}">${announcementPriorityLabel(announcement.priority)}</span>
+          ${announcement.pinned ? `<span class="pin-label">Pinned</span>` : ""}
+        </div>
+        <time datetime="${escapeAttr(announcement.date)}">${escapeHTML(announcementDisplayDate(announcement))}</time>
+      </div>
+      <h3>${escapeHTML(announcement.title)}</h3>
+      <p class="announcement-message ${compact ? "is-preview" : ""}">${escapeHTML(announcement.message)}</p>
+      <div class="announcement-meta">Posted by ${escapeHTML(announcement.author)}</div>
+    </article>
+  `;
+}
+
+function dateTimeLocalValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function resetAnnouncementForm() {
+  $("announcementId").value = "";
+  $("announcementTitle").value = "";
+  $("announcementAuthor").value = "Apartment Admin";
+  $("announcementPriority").value = "normal";
+  $("announcementDate").value = todayISO();
+  $("announcementSchedule").value = "";
+  $("announcementPinned").checked = false;
+  $("announcementMessage").value = "";
+  $("cancelAnnouncementEdit").hidden = true;
+}
+
+function announcementFromForm() {
+  const existing = state.announcements.find((item) => item.id === $("announcementId").value);
+  return normalizeAnnouncement({
+    ...(existing || {}),
+    id: existing?.id || uid(),
+    title: $("announcementTitle").value.trim(),
+    message: $("announcementMessage").value.trim(),
+    author: $("announcementAuthor").value.trim() || "Apartment Admin",
+    priority: $("announcementPriority").value,
+    pinned: $("announcementPinned").checked,
+    date: $("announcementDate").value || todayISO(),
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function validateAnnouncement(announcement) {
+  if (!announcement.title) {
+    showNotice("Enter an announcement title.", false);
+    return false;
+  }
+  if (!announcement.message) {
+    showNotice("Enter an announcement message.", false);
+    return false;
+  }
+  return true;
+}
+
+function saveAnnouncement(status) {
+  if (!requireUnlock()) return;
+  const announcement = announcementFromForm();
+  if (!validateAnnouncement(announcement)) return;
+  const now = new Date().toISOString();
+
+  if (status === "scheduled") {
+    const scheduledValue = $("announcementSchedule").value;
+    if (!scheduledValue) {
+      showNotice("Choose a date and time before scheduling.", false);
+      return;
+    }
+    const scheduledDate = new Date(scheduledValue);
+    if (Number.isNaN(scheduledDate.getTime())) {
+      showNotice("Choose a valid schedule date and time.", false);
+      return;
+    }
+    if (scheduledDate.getTime() <= Date.now()) {
+      showNotice("Choose a future date and time for a scheduled announcement.", false);
+      return;
+    }
+    announcement.scheduledAt = scheduledDate.toISOString();
+    announcement.publishedAt = "";
+  } else if (status === "published") {
+    announcement.publishedAt = now;
+    announcement.scheduledAt = "";
+  } else {
+    announcement.scheduledAt = "";
+  }
+
+  announcement.status = status;
+  const index = state.announcements.findIndex((item) => item.id === announcement.id);
+  if (index >= 0) state.announcements[index] = announcement;
+  else state.announcements.unshift(announcement);
+
+  resetAnnouncementForm();
+  showNotice(status === "draft" ? "Announcement saved as a draft." : status === "scheduled" ? "Announcement scheduled." : "Announcement published.", false);
+  render();
+  scheduleSave();
+}
+
+function editAnnouncement(id) {
+  const announcement = state.announcements.find((item) => item.id === id);
+  if (!announcement || !requireUnlock()) return;
+  $("announcementId").value = announcement.id;
+  $("announcementTitle").value = announcement.title;
+  $("announcementAuthor").value = announcement.author;
+  $("announcementPriority").value = announcement.priority;
+  $("announcementDate").value = announcement.date;
+  $("announcementSchedule").value = dateTimeLocalValue(announcement.scheduledAt);
+  $("announcementPinned").checked = announcement.pinned;
+  $("announcementMessage").value = announcement.message;
+  $("cancelAnnouncementEdit").hidden = false;
+}
+
+function updateAnnouncementStatus(id, status) {
+  if (!requireUnlock()) return;
+  const announcement = state.announcements.find((item) => item.id === id);
+  if (!announcement) return;
+  announcement.status = status;
+  announcement.updatedAt = new Date().toISOString();
+  if (status === "published") {
+    announcement.publishedAt = new Date().toISOString();
+    announcement.scheduledAt = "";
+  }
+  render();
+  scheduleSave();
+}
+
+function previewAnnouncement(announcement = announcementFromForm()) {
+  if (!validateAnnouncement(announcement)) return;
+  $("announcementPreviewTitle").textContent = announcement.title;
+  $("announcementPreviewBody").innerHTML = announcementCardMarkup({
+    ...announcement,
+    status: "published",
+    publishedAt: new Date().toISOString()
+  });
+  $("announcementPreviewModal").hidden = false;
+}
+
 function getReportRange() {
   const period = document.querySelector('input[name="reportPeriod"]:checked')?.value || "monthly";
   const today = startOfDay(new Date());
@@ -566,7 +768,7 @@ function drawBarChart(canvasId, rows, color) {
   const width = canvas.width;
   const height = canvas.height;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#f8fafc";
+  ctx.fillStyle = "#f0f4f6";
   ctx.fillRect(0, 0, width, height);
   const max = Math.max(1, ...rows.map((row) => row[1]));
   const chartTop = 24;
@@ -574,7 +776,7 @@ function drawBarChart(canvasId, rows, color) {
   const chartHeight = chartBottom - chartTop;
   const barGap = 12;
   const barWidth = rows.length ? Math.max(18, (width - 48 - barGap * (rows.length - 1)) / rows.length) : 32;
-  ctx.fillStyle = "#667085";
+  ctx.fillStyle = "#5f6f7a";
   ctx.font = "12px system-ui, sans-serif";
 
   if (!rows.length) {
@@ -588,7 +790,7 @@ function drawBarChart(canvasId, rows, color) {
     const y = chartBottom - barHeight;
     ctx.fillStyle = color;
     ctx.fillRect(x, y, barWidth, barHeight);
-    ctx.fillStyle = "#667085";
+    ctx.fillStyle = "#5f6f7a";
     ctx.fillText(label.slice(5) || label, x, height - 18);
   });
 }
@@ -599,13 +801,13 @@ function drawDonutChart(canvasId, rows) {
   const ctx = canvas.getContext("2d");
   const width = canvas.width;
   const height = canvas.height;
-  const colors = ["#2563eb", "#067647", "#f79009", "#b42318", "#7c3aed", "#0891b2", "#475467", "#c026d3"];
+  const colors = ["#2f6f89", "#a66f43", "#2f6b4f", "#9b3f3f", "#6f7f89", "#6d6587", "#58756b", "#8a6a56"];
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#f8fafc";
+  ctx.fillStyle = "#f0f4f6";
   ctx.fillRect(0, 0, width, height);
   const total = rows.reduce((sum, row) => sum + Number(row[1] || 0), 0);
   if (!total) {
-    ctx.fillStyle = "#667085";
+    ctx.fillStyle = "#5f6f7a";
     ctx.font = "12px system-ui, sans-serif";
     ctx.fillText("No data yet", 20, 36);
     return;
@@ -626,14 +828,14 @@ function drawDonutChart(canvasId, rows) {
   });
   ctx.beginPath();
   ctx.arc(cx, cy, 42, 0, Math.PI * 2);
-  ctx.fillStyle = "#fff";
+  ctx.fillStyle = "#fdfefe";
   ctx.fill();
   ctx.font = "12px system-ui, sans-serif";
   rows.slice(0, 6).forEach(([label, value], index) => {
     const y = 50 + index * 28;
     ctx.fillStyle = colors[index % colors.length];
     ctx.fillRect(250, y - 10, 12, 12);
-    ctx.fillStyle = "#344054";
+    ctx.fillStyle = "#1f2933";
     ctx.fillText(`${label}: ${money(value)}`, 270, y);
   });
 }
@@ -647,6 +849,7 @@ function setActiveView(view) {
   document.querySelectorAll(".nav-tab").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.view === view);
   });
+  renderAnnouncements();
   renderReports();
   renderExpenseManagement();
   renderBackupSettings();
@@ -1348,6 +1551,8 @@ function bindEvents() {
   $("waterDate").value = todayISO();
   $("reportStartDate").value = isoFromDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   $("reportEndDate").value = todayISO();
+  $("announcementDate").value = todayISO();
+  $("announcementAuthor").value = "Apartment Admin";
 
   $("unlockBtn").addEventListener("click", () => {
     if (requireUnlock()) render();
@@ -1357,6 +1562,7 @@ function bindEvents() {
     unlocked = false;
     sessionStorage.removeItem("amotUnlock");
     setEditState();
+    renderAnnouncements();
     showNotice("Locked. Enter the password again to edit.", false);
   });
 
@@ -1378,6 +1584,53 @@ function bindEvents() {
   $("exportCsvBtn").addEventListener("click", exportReportCSV);
   $("exportPdfBtn").addEventListener("click", exportReportPDF);
   $("exportExcelBtn").addEventListener("click", exportReportExcel);
+
+  $("viewAllAnnouncements").addEventListener("click", () => {
+    showAllAnnouncements = !showAllAnnouncements;
+    renderAnnouncements();
+  });
+
+  $("saveAnnouncementDraft").addEventListener("click", () => saveAnnouncement("draft"));
+  $("publishAnnouncement").addEventListener("click", () => saveAnnouncement("published"));
+  $("scheduleAnnouncement").addEventListener("click", () => saveAnnouncement("scheduled"));
+  $("previewAnnouncement").addEventListener("click", () => {
+    if (!requireUnlock()) return;
+    previewAnnouncement();
+  });
+  $("cancelAnnouncementEdit").addEventListener("click", resetAnnouncementForm);
+  $("closeAnnouncementPreview").addEventListener("click", () => {
+    $("announcementPreviewModal").hidden = true;
+  });
+  $("announcementPreviewModal").addEventListener("click", (e) => {
+    if (e.target.id === "announcementPreviewModal") $("announcementPreviewModal").hidden = true;
+  });
+
+  $("announcementAdminBody").addEventListener("click", (e) => {
+    const editBtn = e.target.closest(".edit-announcement");
+    const publishBtn = e.target.closest(".publish-announcement");
+    const archiveBtn = e.target.closest(".archive-announcement");
+    const deleteBtn = e.target.closest(".delete-announcement");
+    if (editBtn) {
+      editAnnouncement(editBtn.dataset.id);
+      return;
+    }
+    if (publishBtn) {
+      updateAnnouncementStatus(publishBtn.dataset.id, "published");
+      return;
+    }
+    if (archiveBtn) {
+      updateAnnouncementStatus(archiveBtn.dataset.id, "archived");
+      return;
+    }
+    if (deleteBtn) {
+      if (!requireUnlock()) return;
+      if (!confirm("Delete this announcement? This action cannot be undone.")) return;
+      state.announcements = state.announcements.filter((item) => item.id !== deleteBtn.dataset.id);
+      resetAnnouncementForm();
+      render();
+      scheduleSave();
+    }
+  });
 
   $("memberInfoSearch").addEventListener("input", renderMembersInfo);
   $("clearMemberInfoSearch").addEventListener("click", () => {
@@ -1917,18 +2170,106 @@ function renderBillDashboard() {
   $("billOutstandingTotal").textContent = money(totalOutstanding);
 }
 
+function renderAnnouncements() {
+  if (!$("announcementBoardList")) return;
+  const published = publishedAnnouncements();
+  const visible = showAllAnnouncements ? published : published.slice(0, 2);
+  $("announcementCount").textContent = `${published.length} published`;
+  $("announcementBoardList").innerHTML = visible.length
+    ? visible.map((announcement) => announcementCardMarkup(announcement, published.length > 1 && !showAllAnnouncements)).join("")
+    : `
+      <div class="announcement-empty">
+        <strong>No announcements right now</strong>
+        <span>New apartment updates will appear here.</span>
+      </div>
+    `;
+  $("viewAllAnnouncements").hidden = published.length <= 2;
+  $("viewAllAnnouncements").textContent = showAllAnnouncements ? "Show latest announcements" : "View all announcements";
+
+  $("announcementAdminState").textContent = unlocked ? "Unlocked" : "Locked";
+  $("announcementAdminGate").hidden = unlocked;
+  $("announcementAdminContent").hidden = !unlocked;
+  if (!unlocked) return;
+
+  const announcements = [...state.announcements].sort((a, b) => {
+    return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+  });
+  $("announcementAdminSummary").textContent = `${announcements.length} announcement${announcements.length === 1 ? "" : "s"} saved.`;
+  $("announcementAdminBody").innerHTML = announcements.length
+    ? announcements.map((announcement) => {
+      const publishText = announcement.status === "scheduled" && announcement.scheduledAt
+        ? new Date(announcement.scheduledAt).toLocaleString("en-PH")
+        : announcement.status === "published"
+          ? announcementDisplayDate(announcement)
+          : "-";
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHTML(announcement.title)}</strong>
+            <small>By ${escapeHTML(announcement.author)}${announcement.pinned ? " | Pinned" : ""}</small>
+          </td>
+          <td><span class="priority-label priority-${announcement.priority}">${announcementPriorityLabel(announcement.priority)}</span></td>
+          <td><span class="status-label status-${announcement.status}">${escapeHTML(announcement.status)}</span></td>
+          <td>${escapeHTML(publishText)}</td>
+          <td class="table-actions">
+            <button class="mini edit-announcement" data-id="${announcement.id}" type="button">Edit</button>
+            ${announcement.status !== "published" ? `<button class="mini publish-announcement" data-id="${announcement.id}" type="button">Publish</button>` : ""}
+            ${announcement.status !== "archived" ? `<button class="mini archive-announcement" data-id="${announcement.id}" type="button">Archive</button>` : ""}
+            <button class="mini danger delete-announcement" data-id="${announcement.id}" type="button">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join("")
+    : `<tr><td colspan="5" class="empty-row">No announcements yet.</td></tr>`;
+}
+
 function renderReports() {
   if (!$("reportsSummary")) return;
   const data = reportData();
+  const totalDue = data.summary.monthlyCollections + data.summary.overduePayments;
+  const collectionRate = totalDue ? Math.round((data.summary.monthlyCollections / totalDue) * 100) : 0;
+  const topCategory = sumByCategory(data.records.expenses)[0];
+  const unpaidMembers = state.members.filter((member) => !member.paid).length;
+  const rangeStart = data.range.start.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+  const rangeEnd = data.range.end.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+  const netText = data.summary.netBalance >= 0
+    ? `You received ${money(data.summary.netBalance)} more than you spent in this period.`
+    : `You spent ${money(Math.abs(data.summary.netBalance))} more than you received in this period.`;
+
+  $("reportRangeLabel").textContent = `${rangeStart} to ${rangeEnd}`;
+  $("reportPlainSummary").textContent = netText;
+  $("reportInsights").innerHTML = `
+    <article class="report-insight ${data.summary.netBalance >= 0 ? "is-positive" : "is-warning"}">
+      <span>Cash flow</span>
+      <strong>${data.summary.netBalance >= 0 ? "Money is ahead" : "Spending is ahead"}</strong>
+      <p>${escapeHTML(netText)}</p>
+    </article>
+    <article class="report-insight">
+      <span>Collection progress</span>
+      <strong>${collectionRate}% collected</strong>
+      <p>${money(data.summary.monthlyCollections)} collected and ${money(data.summary.overduePayments)} still unpaid.</p>
+    </article>
+    <article class="report-insight">
+      <span>Largest expense</span>
+      <strong>${escapeHTML(topCategory?.[0] || "No expenses")}</strong>
+      <p>${topCategory ? `${money(topCategory[1])} spent in this category.` : "Add expenses to see the biggest spending area."}</p>
+    </article>
+    <article class="report-insight ${unpaidMembers ? "is-warning" : "is-positive"}">
+      <span>Member payments</span>
+      <strong>${unpaidMembers ? `${unpaidMembers} unpaid` : "Everyone paid"}</strong>
+      <p>${unpaidMembers ? "These member payments still need follow-up." : "All member contributions are marked paid."}</p>
+    </article>
+  `;
+
   const cards = [
-    ["Total Income", money(data.summary.incomeTotal), "Money in within range"],
-    ["Total Expenses", money(data.summary.expenseTotal), "Expenses within range"],
-    ["Net Balance", money(data.summary.netBalance), "Income minus expenses"],
-    ["Total Members", data.summary.totalMembers, "Current members"],
-    ["Occupied Rooms", data.summary.occupiedRooms, "From rooms or member profiles"],
-    ["Vacant Rooms", data.summary.vacantRooms, "Known vacant rooms"],
-    ["Monthly Collections", money(data.summary.monthlyCollections), "Current paid shares"],
-    ["Overdue Payments", money(data.summary.overduePayments), "Unpaid member and bill shares"]
+    ["Money Received", money(data.summary.incomeTotal), "Income added during the selected dates"],
+    ["Money Spent", money(data.summary.expenseTotal), "Expenses recorded during the selected dates"],
+    ["Money Left", money(data.summary.netBalance), "Received minus spent for this period"],
+    ["Residents", data.summary.totalMembers, "Members currently saved"],
+    ["Rooms Occupied", data.summary.occupiedRooms, "Rooms assigned to residents"],
+    ["Rooms Vacant", data.summary.vacantRooms, "Known rooms without residents"],
+    ["Collected This Cycle", money(data.summary.monthlyCollections), "Member and utility payments marked paid"],
+    ["Still Unpaid", money(data.summary.overduePayments), "Member and utility amounts needing follow-up"]
   ];
   $("reportsSummary").innerHTML = cards.map(([label, value, helper]) => `
     <article class="summary-card">
@@ -1938,8 +2279,8 @@ function renderReports() {
     </article>
   `).join("");
 
-  drawBarChart("incomeChart", sumByMonth(data.records.income), "#2563eb");
-  drawBarChart("expenseChart", sumByMonth(data.records.expenses), "#b42318");
+  drawBarChart("incomeChart", sumByMonth(data.records.income), "#2f6f89");
+  drawBarChart("expenseChart", sumByMonth(data.records.expenses), "#a66f43");
   drawDonutChart("categoryChart", sumByCategory(data.records.expenses));
   drawDonutChart("collectionChart", [
     ["Collected", data.summary.monthlyCollections],
@@ -1958,20 +2299,21 @@ function renderReports() {
     : `<tr><td class="empty-row" colspan="4">No recent transactions for this range.</td></tr>`;
 
   $("financialReportBody").innerHTML = `
-    <tr><th>Income</th><td>${money(data.summary.incomeTotal)}</td></tr>
-    <tr><th>Expenses</th><td>${money(data.summary.expenseTotal)}</td></tr>
-    <tr><th>Profit/Loss</th><td>${money(data.summary.netBalance)}</td></tr>
-    <tr><th>Income by Month</th><td>${sumByMonth(state.income).map(([label, value]) => `${label}: ${money(value)}`).join(", ") || "No income"}</td></tr>
-    <tr><th>Expenses by Month</th><td>${sumByMonth(state.expenses).map(([label, value]) => `${label}: ${money(value)}`).join(", ") || "No expenses"}</td></tr>
-    <tr><th>Expense by Category</th><td>${sumByCategory(state.expenses).map(([label, value]) => `${label}: ${money(value)}`).join(", ") || "No expenses"}</td></tr>
+    <tr><th>Money received</th><td>${money(data.summary.incomeTotal)}</td></tr>
+    <tr><th>Money spent</th><td>${money(data.summary.expenseTotal)}</td></tr>
+    <tr><th>Difference</th><td>${money(data.summary.netBalance)}</td></tr>
+    <tr><th>What it means</th><td>${escapeHTML(netText)}</td></tr>
+    <tr><th>Top expense category</th><td>${topCategory ? `${escapeHTML(topCategory[0])}: ${money(topCategory[1])}` : "No expenses in this period"}</td></tr>
+    <tr><th>Collection progress</th><td>${collectionRate}% of current dues collected</td></tr>
   `;
 
   const rooms = roomStats();
   $("occupancyReportBody").innerHTML = `
-    <tr><th>Total Known Rooms</th><td>${rooms.total}</td></tr>
-    <tr><th>Occupied Rooms</th><td>${rooms.occupied}</td></tr>
-    <tr><th>Vacant Rooms</th><td>${rooms.vacant}</td></tr>
-    <tr><th>Payment Collection</th><td>${money(data.summary.monthlyCollections)}</td></tr>
+    <tr><th>Known rooms</th><td>${rooms.total}</td></tr>
+    <tr><th>Occupied</th><td>${rooms.occupied}</td></tr>
+    <tr><th>Vacant</th><td>${rooms.vacant}</td></tr>
+    <tr><th>Collected this cycle</th><td>${money(data.summary.monthlyCollections)}</td></tr>
+    <tr><th>Still unpaid</th><td>${money(data.summary.overduePayments)}</td></tr>
   `;
 
   const overdueMembers = state.members.filter((member) => !member.paid);
@@ -2125,6 +2467,7 @@ function renderBackupSettings() {
 }
 
 function render() {
+  renderAnnouncements();
   renderSummary();
   renderMembers();
   renderTransactions();

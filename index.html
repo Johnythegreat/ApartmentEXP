@@ -24,23 +24,28 @@
       </div>
     </header>
 
-
-    <section class="announcements-board" aria-labelledby="announcementsTitle">
-      <div class="announcements-heading"><div><p class="eyebrow">Community updates</p><h2 id="announcementsTitle">Announcements</h2></div><button id="viewAllAnnouncements" class="secondary-btn" type="button">View all announcements</button></div>
-      <div id="announcementList" class="announcement-list"><p class="helper-text">Loading announcements…</p></div>
-      <form id="announcementSubscribeForm" class="announcement-subscribe"><label><span>Get new announcements by email</span><input id="announcementEmail" type="email" required placeholder="you@example.com" autocomplete="email"></label><button class="primary-btn" type="submit">Subscribe</button><p id="subscriptionMessage" class="helper-text" aria-live="polite"></p></form>
-    </section>
-
     <nav class="app-nav" aria-label="Main navigation">
       <button class="nav-tab active" type="button" data-view="home">Tracker</button>
+      <button class="nav-tab" type="button" data-view="announcements">Announcements</button>
       <button class="nav-tab" type="button" data-view="membersInfo">Members Info</button>
       <button class="nav-tab" type="button" data-view="reports">Reports</button>
       <button class="nav-tab" type="button" data-view="expenses">Expenses</button>
       <button class="nav-tab" type="button" data-view="backup">Backup</button>
-      <button class="nav-tab" type="button" data-view="announcementsAdmin">Announcements Admin</button>
     </nav>
 
     <section id="homeView" class="app-view active" data-view-panel="home">
+    <section class="announcement-board panel" aria-labelledby="announcementBoardTitle">
+      <div class="announcement-board-head">
+        <div>
+          <p class="eyebrow">Community Updates</p>
+          <h2 id="announcementBoardTitle">Announcements</h2>
+        </div>
+        <span id="announcementCount" class="pill">0 published</span>
+      </div>
+      <div id="announcementBoardList" class="announcement-board-list"></div>
+      <button id="viewAllAnnouncements" class="secondary-btn announcement-view-all" type="button" hidden>View all announcements</button>
+    </section>
+
     <section class="summary-grid" aria-label="Budget summary">
       <article class="summary-card balance-card">
         <span>Available Balance</span>
@@ -290,6 +295,67 @@
     </section>
     </section>
 
+    <section id="announcementsView" class="app-view" data-view-panel="announcements" hidden>
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Announcement Management</h2>
+            <p>Create public updates, save drafts, schedule publishing, and archive old notices.</p>
+          </div>
+          <span id="announcementAdminState" class="pill">Locked</span>
+        </div>
+        <div id="announcementAdminGate" class="admin-gate">
+          Unlock the tracker using the password above to manage announcements.
+        </div>
+        <div id="announcementAdminContent" hidden>
+          <form id="announcementForm" class="announcement-form">
+            <input id="announcementId" type="hidden" />
+            <input id="announcementTitle" type="text" placeholder="Announcement title" autocomplete="off" />
+            <input id="announcementAuthor" type="text" placeholder="Author" autocomplete="off" />
+            <select id="announcementPriority" aria-label="Announcement priority">
+              <option value="normal">Normal</option>
+              <option value="important">Important</option>
+              <option value="urgent">Urgent</option>
+            </select>
+            <input id="announcementDate" type="date" aria-label="Announcement date" />
+            <input id="announcementSchedule" type="datetime-local" aria-label="Schedule publish date and time" />
+            <label class="toggle-row announcement-pin">
+              <input id="announcementPinned" type="checkbox" />
+              <span>Pin this announcement</span>
+            </label>
+            <textarea id="announcementMessage" placeholder="Write the announcement message"></textarea>
+            <div class="form-actions announcement-form-actions">
+              <button id="saveAnnouncementDraft" class="secondary-btn" type="button">Save Draft</button>
+              <button id="publishAnnouncement" class="primary-btn" type="button">Publish Now</button>
+              <button id="scheduleAnnouncement" class="warn-btn" type="button">Schedule</button>
+              <button id="previewAnnouncement" class="ghost-btn" type="button">Preview</button>
+              <button id="cancelAnnouncementEdit" class="secondary-btn" type="button" hidden>Cancel Edit</button>
+            </div>
+          </form>
+          <div class="panel-heading compact">
+            <div>
+              <h2>All Announcements</h2>
+              <p id="announcementAdminSummary">No announcements yet.</p>
+            </div>
+          </div>
+          <div class="responsive-table">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Announcement</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th>Publish Date</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="announcementAdminBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </section>
+
     <section id="membersInfoView" class="app-view" data-view-panel="membersInfo" hidden>
       <section class="panel">
         <div class="panel-heading">
@@ -327,7 +393,7 @@
         <div class="panel-heading">
           <div>
             <h2>Reports Dashboard</h2>
-            <p>Review income, expenses, collections, occupancy, and overdue balances.</p>
+            <p>See what came in, what went out, and what still needs attention.</p>
           </div>
           <div class="report-actions">
             <button id="exportPdfBtn" class="secondary-btn" type="button">PDF</button>
@@ -346,22 +412,30 @@
           <input id="reportStartDate" type="date" aria-label="Report start date" />
           <input id="reportEndDate" type="date" aria-label="Report end date" />
         </div>
+        <div class="report-explainer">
+          <div>
+            <span>Showing</span>
+            <strong id="reportRangeLabel">This month</strong>
+          </div>
+          <p id="reportPlainSummary">Your financial summary will appear here.</p>
+        </div>
+        <div id="reportInsights" class="report-insights"></div>
         <div id="reportsSummary" class="summary-grid report-card-grid"></div>
         <div class="report-grid">
           <article class="panel chart-panel">
-            <div class="panel-heading compact"><h2>Income by Month</h2></div>
+            <div class="panel-heading compact"><div><h2>Money Received</h2><p>Income recorded for each month.</p></div></div>
             <canvas id="incomeChart" class="report-chart" width="480" height="260"></canvas>
           </article>
           <article class="panel chart-panel">
-            <div class="panel-heading compact"><h2>Expenses by Month</h2></div>
+            <div class="panel-heading compact"><div><h2>Money Spent</h2><p>Expenses recorded for each month.</p></div></div>
             <canvas id="expenseChart" class="report-chart" width="480" height="260"></canvas>
           </article>
           <article class="panel chart-panel">
-            <div class="panel-heading compact"><h2>Expense by Category</h2></div>
+            <div class="panel-heading compact"><div><h2>Where the Money Went</h2><p>Expense totals grouped by category.</p></div></div>
             <canvas id="categoryChart" class="report-chart" width="480" height="260"></canvas>
           </article>
           <article class="panel chart-panel">
-            <div class="panel-heading compact"><h2>Collection Status</h2></div>
+            <div class="panel-heading compact"><div><h2>Collection Progress</h2><p>Current paid amounts compared with overdue amounts.</p></div></div>
             <canvas id="collectionChart" class="report-chart" width="480" height="260"></canvas>
           </article>
         </div>
@@ -371,15 +445,15 @@
             <div class="responsive-table"><table class="data-table"><tbody id="reportTransactionsBody"></tbody></table></div>
           </article>
           <article class="panel">
-            <div class="panel-heading compact"><h2>Financial Summary</h2></div>
+            <div class="panel-heading compact"><h2>Simple Breakdown</h2></div>
             <div class="responsive-table"><table class="data-table"><tbody id="financialReportBody"></tbody></table></div>
           </article>
           <article class="panel">
-            <div class="panel-heading compact"><h2>Occupancy Report</h2></div>
+            <div class="panel-heading compact"><h2>Rooms and Collections</h2></div>
             <div class="responsive-table"><table class="data-table"><tbody id="occupancyReportBody"></tbody></table></div>
           </article>
           <article class="panel">
-            <div class="panel-heading compact"><h2>Overdue Tenants Report</h2></div>
+            <div class="panel-heading compact"><h2>Needs Attention</h2></div>
             <div class="responsive-table"><table class="data-table"><tbody id="overdueReportBody"></tbody></table></div>
           </article>
         </div>
@@ -506,18 +580,6 @@
         </article>
       </section>
     </section>
-
-    <section id="announcementsAdminView" class="app-view" data-view-panel="announcementsAdmin" hidden>
-      <section class="panel announcement-admin">
-        <div class="panel-heading"><div><h2>Announcements Admin</h2><p>Sign in with an authorized Firebase account.</p></div><button id="announcementSignOut" class="ghost-btn" type="button" hidden>Sign out</button></div>
-        <form id="announcementLogin" class="announcement-login"><input id="adminEmail" type="email" required placeholder="Admin email"><input id="adminPassword" type="password" required placeholder="Password"><button class="primary-btn">Sign in</button></form>
-        <form id="announcementEditor" hidden>
-          <input id="announcementId" type="hidden"><div class="profile-form-grid"><input id="announcementTitleInput" required placeholder="Title"><input id="announcementAuthor" required placeholder="Author"><select id="announcementPriority"><option>Normal</option><option>Important</option><option>Urgent</option></select><input id="announcementSchedule" type="datetime-local"><label class="toggle-row"><input id="announcementPinned" type="checkbox"><span>Pin announcement</span></label><label class="toggle-row"><input id="announcementNotify" type="checkbox"><span>Send notification when published</span></label><textarea id="announcementMessage" required placeholder="Announcement message"></textarea></div>
-          <div class="form-actions"><button type="button" id="previewAnnouncement" class="secondary-btn">Preview</button><button type="submit" data-action="draft" class="secondary-btn">Save draft</button><button type="submit" data-action="publish" class="primary-btn">Publish / Schedule</button></div>
-        </form><div id="announcementPreview" class="announcement-preview" hidden></div><div id="adminAnnouncementList" class="announcement-list"></div>
-      </section>
-    </section>
-
   </main>
 
   <div id="profileModal" class="modal-backdrop" hidden>
@@ -533,7 +595,19 @@
     </section>
   </div>
 
+  <div id="announcementPreviewModal" class="modal-backdrop" hidden>
+    <section class="profile-modal announcement-preview-modal" role="dialog" aria-modal="true" aria-labelledby="announcementPreviewTitle">
+      <div class="profile-modal-head">
+        <div>
+          <p class="eyebrow">Announcement Preview</p>
+          <h2 id="announcementPreviewTitle">Preview</h2>
+        </div>
+        <button id="closeAnnouncementPreview" class="ghost-btn" type="button">Close</button>
+      </div>
+      <div id="announcementPreviewBody" class="announcement-preview-body"></div>
+    </section>
+  </div>
+
   <script type="module" src="app.js"></script>
-  <script type="module" src="announcements.js"></script>
 </body>
 </html>
