@@ -64,6 +64,16 @@ const REPORT_EXPORT_NAME = "apartment-report";
 const BACKUP_EXPORT_NAME = "apartment-tracker-backup";
 const ANNOUNCEMENT_PRIORITIES = ["normal", "important", "urgent"];
 const ANNOUNCEMENT_STATUSES = ["draft", "published", "scheduled", "archived"];
+const THEME_KEY = "apartment-theme";
+const SIDEBAR_KEY = "apartment-sidebar-collapsed";
+const PAGE_TITLES = {
+  home: "Dashboard",
+  announcements: "Announcements",
+  membersInfo: "Residents",
+  reports: "Reports",
+  expenses: "Finance",
+  backup: "Settings"
+};
 
 const $ = (id) => document.getElementById(id);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -224,6 +234,8 @@ let activeView = "home";
 let pendingRestoreState = null;
 let deleteBackupDownloaded = false;
 let showAllAnnouncements = false;
+let expandedAnnouncementIds = new Set();
+let resolveConfirm = null;
 
 function logFirestore(action, detail = "") {
   console.info(`[Firestore] ${action}: ${FIRESTORE_DOC_PATH}${detail ? ` (${detail})` : ""}`);
@@ -319,6 +331,75 @@ function escapeHTML(text = "") {
 
 function escapeAttr(text = "") {
   return escapeHTML(text).replaceAll("\"", "&quot;");
+}
+
+function refreshIcons() {
+  if (window.lucide?.createIcons) {
+    window.lucide.createIcons({ attrs: { "stroke-width": 2 } });
+  }
+}
+
+function setTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem(THEME_KEY, next);
+  const toggle = $("themeToggle");
+  if (toggle) {
+    toggle.setAttribute("aria-label", next === "dark" ? "Switch to light mode" : "Switch to dark mode");
+    toggle.innerHTML = `<i data-lucide="${next === "dark" ? "sun" : "moon"}" aria-hidden="true"></i>`;
+  }
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) themeMeta.content = next === "dark" ? "#0f172a" : "#f8fafc";
+  refreshIcons();
+  renderReports();
+}
+
+function toggleTheme() {
+  setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+}
+
+function setSidebarCollapsed(collapsed) {
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  localStorage.setItem(SIDEBAR_KEY, collapsed ? "yes" : "no");
+  const button = $("collapseNavBtn");
+  if (button) {
+    button.setAttribute("aria-pressed", String(collapsed));
+    button.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    button.innerHTML = `<i data-lucide="${collapsed ? "panel-left-open" : "panel-left-close"}" aria-hidden="true"></i>`;
+  }
+  refreshIcons();
+}
+
+function setMobileNav(open) {
+  document.body.classList.toggle("nav-open", open);
+  if ($("mobileNavOverlay")) $("mobileNavOverlay").hidden = !open;
+  if ($("mobileMenuBtn")) $("mobileMenuBtn").setAttribute("aria-expanded", String(open));
+}
+
+function focusableElements(container) {
+  return [...container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((el) => !el.disabled && el.offsetParent !== null);
+}
+
+function openConfirm({ title = "Confirm action", message = "This action cannot be undone.", acceptLabel = "Confirm", danger = true } = {}) {
+  const modal = $("confirmModal");
+  if (!modal) return Promise.resolve(window.confirm(message));
+  $("confirmModalTitle").textContent = title;
+  $("confirmModalBody").textContent = message;
+  $("confirmAcceptBtn").textContent = acceptLabel;
+  $("confirmAcceptBtn").className = danger ? "danger-btn" : "primary-btn";
+  modal.hidden = false;
+  refreshIcons();
+  $("confirmCancelBtn").focus();
+  return new Promise((resolve) => {
+    resolveConfirm = resolve;
+  });
+}
+
+function closeConfirm(accepted = false) {
+  if ($("confirmModal")) $("confirmModal").hidden = true;
+  if (resolveConfirm) resolveConfirm(accepted);
+  resolveConfirm = null;
 }
 
 function safeURL(url = "") {
@@ -514,8 +595,11 @@ function announcementDisplayDate(announcement) {
 }
 
 function announcementCardMarkup(announcement, compact = false) {
+  const isExpanded = expandedAnnouncementIds.has(announcement.id);
+  const isLong = announcement.message.length > 180;
+  const shouldClamp = compact && isLong && !isExpanded;
   return `
-    <article class="announcement-item priority-${announcement.priority} ${announcement.pinned ? "is-pinned" : ""}">
+    <article class="announcement-item priority-${announcement.priority} ${announcement.pinned ? "is-pinned" : ""}" data-id="${escapeAttr(announcement.id)}">
       <div class="announcement-item-head">
         <div class="announcement-labels">
           <span class="priority-label priority-${announcement.priority}">${announcementPriorityLabel(announcement.priority)}</span>
@@ -524,7 +608,8 @@ function announcementCardMarkup(announcement, compact = false) {
         <time datetime="${escapeAttr(announcement.date)}">${escapeHTML(announcementDisplayDate(announcement))}</time>
       </div>
       <h3>${escapeHTML(announcement.title)}</h3>
-      <p class="announcement-message ${compact ? "is-preview" : ""}">${escapeHTML(announcement.message)}</p>
+      <p class="announcement-message ${shouldClamp ? "is-preview" : ""}">${escapeHTML(announcement.message)}</p>
+      ${compact && isLong ? `<button class="read-more-btn" type="button" data-id="${escapeAttr(announcement.id)}">${isExpanded ? "Show less" : "Read more"}</button>` : ""}
       <div class="announcement-meta">Posted by ${escapeHTML(announcement.author)}</div>
     </article>
   `;
@@ -547,6 +632,9 @@ function resetAnnouncementForm() {
   $("announcementSchedule").value = "";
   $("announcementPinned").checked = false;
   $("announcementMessage").value = "";
+  if ($("announcementCharacterGuide")) {
+    $("announcementCharacterGuide").textContent = "0 / 1200 characters. Times use your browser timezone.";
+  }
   $("cancelAnnouncementEdit").hidden = true;
 }
 
@@ -629,6 +717,9 @@ function editAnnouncement(id) {
   $("announcementSchedule").value = dateTimeLocalValue(announcement.scheduledAt);
   $("announcementPinned").checked = announcement.pinned;
   $("announcementMessage").value = announcement.message;
+  if ($("announcementCharacterGuide")) {
+    $("announcementCharacterGuide").textContent = `${announcement.message.length} / 1200 characters. Times use your browser timezone.`;
+  }
   $("cancelAnnouncementEdit").hidden = false;
 }
 
@@ -786,8 +877,11 @@ function drawBarChart(canvasId, rows, color) {
   const ctx = canvas.getContext("2d");
   const width = canvas.width;
   const height = canvas.height;
+  const css = getComputedStyle(document.documentElement);
+  const chartBg = css.getPropertyValue("--surface-secondary").trim() || "#f0f4f6";
+  const chartText = css.getPropertyValue("--text-secondary").trim() || "#5f6f7a";
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#f0f4f6";
+  ctx.fillStyle = chartBg;
   ctx.fillRect(0, 0, width, height);
   const max = Math.max(1, ...rows.map((row) => row[1]));
   const chartTop = 24;
@@ -795,7 +889,7 @@ function drawBarChart(canvasId, rows, color) {
   const chartHeight = chartBottom - chartTop;
   const barGap = 12;
   const barWidth = rows.length ? Math.max(18, (width - 48 - barGap * (rows.length - 1)) / rows.length) : 32;
-  ctx.fillStyle = "#5f6f7a";
+  ctx.fillStyle = chartText;
   ctx.font = "12px system-ui, sans-serif";
 
   if (!rows.length) {
@@ -809,7 +903,7 @@ function drawBarChart(canvasId, rows, color) {
     const y = chartBottom - barHeight;
     ctx.fillStyle = color;
     ctx.fillRect(x, y, barWidth, barHeight);
-    ctx.fillStyle = "#5f6f7a";
+    ctx.fillStyle = chartText;
     ctx.fillText(label.slice(5) || label, x, height - 18);
   });
 }
@@ -820,13 +914,26 @@ function drawDonutChart(canvasId, rows) {
   const ctx = canvas.getContext("2d");
   const width = canvas.width;
   const height = canvas.height;
-  const colors = ["#2f6f89", "#a66f43", "#2f6b4f", "#9b3f3f", "#6f7f89", "#6d6587", "#58756b", "#8a6a56"];
+  const css = getComputedStyle(document.documentElement);
+  const chartBg = css.getPropertyValue("--surface-secondary").trim() || "#f0f4f6";
+  const chartSurface = css.getPropertyValue("--surface").trim() || "#ffffff";
+  const chartText = css.getPropertyValue("--text-primary").trim() || "#1f2933";
+  const colors = [
+    css.getPropertyValue("--primary").trim() || "#2563eb",
+    css.getPropertyValue("--warning").trim() || "#d97706",
+    css.getPropertyValue("--success").trim() || "#16a34a",
+    css.getPropertyValue("--danger").trim() || "#dc2626",
+    "#64748b",
+    "#7c3aed",
+    "#0891b2",
+    "#475569"
+  ];
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#f0f4f6";
+  ctx.fillStyle = chartBg;
   ctx.fillRect(0, 0, width, height);
   const total = rows.reduce((sum, row) => sum + Number(row[1] || 0), 0);
   if (!total) {
-    ctx.fillStyle = "#5f6f7a";
+    ctx.fillStyle = chartText;
     ctx.font = "12px system-ui, sans-serif";
     ctx.fillText("No data yet", 20, 36);
     return;
@@ -847,31 +954,36 @@ function drawDonutChart(canvasId, rows) {
   });
   ctx.beginPath();
   ctx.arc(cx, cy, 42, 0, Math.PI * 2);
-  ctx.fillStyle = "#fdfefe";
+  ctx.fillStyle = chartSurface;
   ctx.fill();
   ctx.font = "12px system-ui, sans-serif";
   rows.slice(0, 6).forEach(([label, value], index) => {
     const y = 50 + index * 28;
     ctx.fillStyle = colors[index % colors.length];
     ctx.fillRect(250, y - 10, 12, 12);
-    ctx.fillStyle = "#1f2933";
+    ctx.fillStyle = chartText;
     ctx.fillText(`${label}: ${money(value)}`, 270, y);
   });
 }
 
 function setActiveView(view) {
   activeView = view;
+  if ($("pageTitle")) $("pageTitle").textContent = PAGE_TITLES[view] || "Dashboard";
   document.querySelectorAll("[data-view-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.viewPanel !== view;
     panel.classList.toggle("active", panel.dataset.viewPanel === view);
   });
   document.querySelectorAll(".nav-tab").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.view === view);
+    if (tab.dataset.view === view) tab.setAttribute("aria-current", "page");
+    else tab.removeAttribute("aria-current");
   });
+  setMobileNav(false);
   renderAnnouncements();
   renderReports();
   renderExpenseManagement();
   renderBackupSettings();
+  refreshIcons();
 }
 
 function csvEscape(value) {
@@ -1496,15 +1608,23 @@ function renderTransactions() {
 
 function renderSummary() {
   const totals = calcTotals();
+  const electricity = getBillData("electricity");
+  const water = getBillData("water");
+  const outstanding = electricity.outstanding + water.outstanding + state.members.filter((member) => !member.paid).length * AMOTAN_AMOUNT;
+  const activeAnnouncements = publishedAnnouncements().length;
   $("remainingBalance").textContent = money(totals.remaining);
   $("paidMembers").textContent = `${totals.paidMembers}/${state.members.length}`;
   $("carryoverAmount").textContent = money(state.carryover);
   $("cycleStarted").textContent = state.cycleStarted || "Today";
+  if ($("brandName")) $("brandName").textContent = state.settings.apartmentName || "Apartment Tracker";
 
   const elapsed = daysBetween(state.cycleStarted, todayISO());
   const left = Math.max(0, CYCLE_DAYS - elapsed);
   $("cycleLeft").textContent = `${left} day${left === 1 ? "" : "s"} left`;
   $("summaryBreakdown").textContent = summaryText(totals);
+  if ($("dashboardPulse")) {
+    $("dashboardPulse").textContent = `${state.members.length} resident${state.members.length === 1 ? "" : "s"}, ${activeAnnouncements} active announcement${activeAnnouncements === 1 ? "" : "s"}, ${money(outstanding)} still outstanding.`;
+  }
 }
 
 function endCycle() {
@@ -1575,6 +1695,46 @@ function bindEvents() {
   $("reportEndDate").value = todayISO();
   $("announcementDate").value = todayISO();
   $("announcementAuthor").value = "Apartment Admin";
+  setTheme(localStorage.getItem(THEME_KEY) || document.documentElement.dataset.theme || "light");
+  setSidebarCollapsed(localStorage.getItem(SIDEBAR_KEY) === "yes");
+
+  $("themeToggle")?.addEventListener("click", toggleTheme);
+  $("mobileMenuBtn")?.addEventListener("click", () => setMobileNav(!document.body.classList.contains("nav-open")));
+  $("mobileNavOverlay")?.addEventListener("click", () => setMobileNav(false));
+  $("collapseNavBtn")?.addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed")));
+  $("passwordToggle")?.addEventListener("click", () => {
+    const input = $("passwordInput");
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    $("passwordToggle").setAttribute("aria-label", showing ? "Show password" : "Hide password");
+    $("passwordToggle").innerHTML = `<i data-lucide="${showing ? "eye" : "eye-off"}" aria-hidden="true"></i>`;
+    refreshIcons();
+  });
+  ["confirmCancelBtn", "confirmCancelX"].forEach((id) => $(id)?.addEventListener("click", () => closeConfirm(false)));
+  $("confirmAcceptBtn")?.addEventListener("click", () => closeConfirm(true));
+  $("confirmModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "confirmModal") closeConfirm(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (!$("confirmModal")?.hidden) closeConfirm(false);
+      if (!$("profileModal")?.hidden) closeProfileModal();
+      if (!$("announcementPreviewModal")?.hidden) $("announcementPreviewModal").hidden = true;
+      if (document.body.classList.contains("nav-open")) setMobileNav(false);
+    }
+    if (e.key !== "Tab" || $("confirmModal")?.hidden) return;
+    const focusables = focusableElements($("confirmModal"));
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  });
 
   $("unlockBtn").addEventListener("click", () => {
     if (requireUnlock()) render();
@@ -1611,6 +1771,30 @@ function bindEvents() {
     showAllAnnouncements = !showAllAnnouncements;
     renderAnnouncements();
   });
+  $("announcementBoardList").addEventListener("click", (e) => {
+    const btn = e.target.closest(".read-more-btn");
+    if (!btn) return;
+    if (expandedAnnouncementIds.has(btn.dataset.id)) expandedAnnouncementIds.delete(btn.dataset.id);
+    else expandedAnnouncementIds.add(btn.dataset.id);
+    renderAnnouncements();
+  });
+
+  ["announcementSearch", "announcementStatusFilter", "announcementPriorityFilter", "announcementDateFilter"].forEach((id) => {
+    $(id)?.addEventListener("input", renderAnnouncements);
+    $(id)?.addEventListener("change", renderAnnouncements);
+  });
+  $("clearAnnouncementFilters")?.addEventListener("click", () => {
+    $("announcementSearch").value = "";
+    $("announcementStatusFilter").value = "";
+    $("announcementPriorityFilter").value = "";
+    $("announcementDateFilter").value = "";
+    renderAnnouncements();
+  });
+  $("announcementMessage")?.addEventListener("input", () => {
+    if ($("announcementCharacterGuide")) {
+      $("announcementCharacterGuide").textContent = `${$("announcementMessage").value.length} / 1200 characters. Times use your browser timezone.`;
+    }
+  });
 
   $("saveAnnouncementDraft").addEventListener("click", () => saveAnnouncement("draft"));
   $("publishAnnouncement").addEventListener("click", () => saveAnnouncement("published"));
@@ -1627,7 +1811,7 @@ function bindEvents() {
     if (e.target.id === "announcementPreviewModal") $("announcementPreviewModal").hidden = true;
   });
 
-  $("announcementAdminBody").addEventListener("click", (e) => {
+  $("announcementAdminBody").addEventListener("click", async (e) => {
     const editBtn = e.target.closest(".edit-announcement");
     const publishBtn = e.target.closest(".publish-announcement");
     const archiveBtn = e.target.closest(".archive-announcement");
@@ -1641,12 +1825,24 @@ function bindEvents() {
       return;
     }
     if (archiveBtn) {
-      updateAnnouncementStatus(archiveBtn.dataset.id, "archived");
+      const ok = await openConfirm({
+        title: "Archive announcement?",
+        message: "Archived announcements will no longer appear on the public board.",
+        acceptLabel: "Archive",
+        danger: false
+      });
+      if (ok) updateAnnouncementStatus(archiveBtn.dataset.id, "archived");
       return;
     }
     if (deleteBtn) {
       if (!requireUnlock()) return;
-      if (!confirm("Delete this announcement? This action cannot be undone.")) return;
+      const ok = await openConfirm({
+        title: "Delete announcement?",
+        message: "This announcement will be permanently removed. This action cannot be undone.",
+        acceptLabel: "Delete",
+        danger: true
+      });
+      if (!ok) return;
       state.announcements = state.announcements.filter((item) => item.id !== deleteBtn.dataset.id);
       resetAnnouncementForm();
       render();
@@ -1704,10 +1900,17 @@ function bindEvents() {
     scheduleSave();
   });
 
-  $("membersList").addEventListener("click", (e) => {
+  $("membersList").addEventListener("click", async (e) => {
     const btn = e.target.closest(".delete-member");
     if (btn) {
       if (!requireUnlock()) return;
+      const ok = await openConfirm({
+        title: "Delete resident?",
+        message: "This resident will be removed from member and utility bill lists.",
+        acceptLabel: "Delete",
+        danger: true
+      });
+      if (!ok) return;
       const memberId = btn.dataset.id;
       state.members = state.members.filter((m) => m.id !== memberId);
       for (const bill of [state.bills.electricity, state.bills.water]) {
@@ -1817,10 +2020,17 @@ function bindEvents() {
     $("transactionSubmit").className = e.target.value === "expense" ? "danger-btn" : "success-btn";
   });
 
-  $("transactionsList").addEventListener("click", (e) => {
+  $("transactionsList").addEventListener("click", async (e) => {
     const btn = e.target.closest(".delete-transaction");
     if (!btn) return;
     if (!requireUnlock()) return;
+    const ok = await openConfirm({
+      title: "Delete transaction?",
+      message: "This activity entry will be permanently removed.",
+      acceptLabel: "Delete",
+      danger: true
+    });
+    if (!ok) return;
     const kind = btn.dataset.kind;
     const id = btn.dataset.id;
     if (kind === "expense") state.expenses = state.expenses.filter((item) => item.id !== id);
@@ -1877,7 +2087,7 @@ function bindEvents() {
     renderExpenseManagement();
   });
 
-  $("expensesTableBody").addEventListener("click", (e) => {
+  $("expensesTableBody").addEventListener("click", async (e) => {
     const editBtn = e.target.closest(".edit-expense");
     const deleteBtn = e.target.closest(".delete-expense");
     if (editBtn) {
@@ -1898,7 +2108,13 @@ function bindEvents() {
     }
     if (deleteBtn) {
       if (!requireUnlock()) return;
-      if (!confirm("Delete this expense?")) return;
+      const ok = await openConfirm({
+        title: "Delete expense?",
+        message: "This expense record will be permanently removed.",
+        acceptLabel: "Delete",
+        danger: true
+      });
+      if (!ok) return;
       state.expenses = state.expenses.filter((item) => item.id !== deleteBtn.dataset.id);
       render();
       scheduleSave();
@@ -1930,10 +2146,16 @@ function bindEvents() {
     }
   });
 
-  $("confirmRestoreBtn").addEventListener("click", () => {
+  $("confirmRestoreBtn").addEventListener("click", async () => {
     if (!pendingRestoreState) return;
     if (!requireUnlock()) return;
-    if (!confirm("Restore this backup? Current records will be replaced. This action cannot be undone.")) return;
+    const ok = await openConfirm({
+      title: "Restore backup?",
+      message: "Current records will be replaced by the uploaded backup. This action cannot be undone.",
+      acceptLabel: "Restore",
+      danger: true
+    });
+    if (!ok) return;
     state = normalizeState(pendingRestoreState);
     pendingRestoreState = null;
     $("restoreFile").value = "";
@@ -1965,10 +2187,16 @@ function bindEvents() {
 
   $("deleteConfirmInput").addEventListener("input", renderBackupSettings);
 
-  $("safeDeleteBtn").addEventListener("click", () => {
+  $("safeDeleteBtn").addEventListener("click", async () => {
     if (!requireUnlock()) return;
     if (!deleteBackupDownloaded || $("deleteConfirmInput").value.trim() !== "DELETE") return;
-    if (!confirm("This action cannot be undone. Delete all apartment tracker data?")) return;
+    const ok = await openConfirm({
+      title: "Delete all data?",
+      message: "All apartment tracker data will be cleared after your backup gate. This action cannot be undone.",
+      acceptLabel: "Delete all data",
+      danger: true
+    });
+    if (!ok) return;
     state = defaultState();
     deleteBackupDownloaded = false;
     $("deleteConfirmInput").value = "";
@@ -1976,14 +2204,26 @@ function bindEvents() {
     scheduleSave();
   });
 
-  $("manualResetBtn").addEventListener("click", () => {
+  $("manualResetBtn").addEventListener("click", async () => {
     if (!requireUnlock()) return;
-    if (confirm("End this cycle now and carry over any remaining balance?")) endCycle();
+    const ok = await openConfirm({
+      title: "End current cycle?",
+      message: "Paid members, money in, and expenses will reset while the remaining balance becomes next cycle's sobra.",
+      acceptLabel: "End cycle",
+      danger: false
+    });
+    if (ok) endCycle();
   });
 
-  $("clearActivityBtn").addEventListener("click", () => {
+  $("clearActivityBtn").addEventListener("click", async () => {
     if (!requireUnlock()) return;
-    if (confirm("Clear all money in and expenses for this cycle?")) clearActivity();
+    const ok = await openConfirm({
+      title: "Clear activity?",
+      message: "Money in and expense records for this cycle will be removed.",
+      acceptLabel: "Clear activity",
+      danger: true
+    });
+    if (ok) clearActivity();
   });
 
   $("clearAllBtn").addEventListener("click", () => {
@@ -2213,10 +2453,24 @@ function renderAnnouncements() {
   $("announcementAdminContent").hidden = !unlocked;
   if (!unlocked) return;
 
-  const announcements = [...state.announcements].sort((a, b) => {
+  const filters = {
+    search: $("announcementSearch")?.value.trim().toLowerCase() || "",
+    status: $("announcementStatusFilter")?.value || "",
+    priority: $("announcementPriorityFilter")?.value || "",
+    fromDate: $("announcementDateFilter")?.value || ""
+  };
+  const allAnnouncements = [...state.announcements].sort((a, b) => {
     return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
   });
-  $("announcementAdminSummary").textContent = `${announcements.length} announcement${announcements.length === 1 ? "" : "s"} saved.`;
+  const announcements = allAnnouncements.filter((announcement) => {
+    const haystack = [announcement.title, announcement.author, announcement.message, announcement.status, announcement.priority].join(" ").toLowerCase();
+    if (filters.search && !haystack.includes(filters.search)) return false;
+    if (filters.status && announcement.status !== filters.status) return false;
+    if (filters.priority && announcement.priority !== filters.priority) return false;
+    if (filters.fromDate && (announcement.date || todayISO()) < filters.fromDate) return false;
+    return true;
+  });
+  $("announcementAdminSummary").textContent = `${announcements.length} of ${allAnnouncements.length} announcement${allAnnouncements.length === 1 ? "" : "s"} shown.`;
   $("announcementAdminBody").innerHTML = announcements.length
     ? announcements.map((announcement) => {
       const publishText = announcement.status === "scheduled" && announcement.scheduledAt
@@ -2231,7 +2485,7 @@ function renderAnnouncements() {
             <small>By ${escapeHTML(announcement.author)}${announcement.pinned ? " | Pinned" : ""}</small>
           </td>
           <td><span class="priority-label priority-${announcement.priority}">${announcementPriorityLabel(announcement.priority)}</span></td>
-          <td><span class="status-label status-${announcement.status}">${escapeHTML(announcement.status)}</span></td>
+          <td><span class="status-label status-${announcement.status}">${escapeHTML(announcement.status[0].toUpperCase() + announcement.status.slice(1))}</span></td>
           <td>${escapeHTML(publishText)}</td>
           <td class="table-actions">
             <button class="mini edit-announcement" data-id="${announcement.id}" type="button">Edit</button>
@@ -2242,7 +2496,7 @@ function renderAnnouncements() {
         </tr>
       `;
     }).join("")
-    : `<tr><td colspan="5" class="empty-row">No announcements yet.</td></tr>`;
+    : `<tr><td colspan="5" class="empty-row">${allAnnouncements.length ? "No announcements match the current filters." : "No announcements yet."}</td></tr>`;
 }
 
 function renderReports() {
@@ -2506,6 +2760,7 @@ function render() {
   renderExpenseManagement();
   renderBackupSettings();
   setEditState();
+  refreshIcons();
 }
 
 async function initFirebase() {
@@ -2567,6 +2822,7 @@ async function boot() {
   state = loadLocal();
   checkAutoCycle();
   render();
+  setActiveView(activeView);
   setStatus("Local ready", "local");
   document.body.classList.remove("is-loading");
 

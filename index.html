@@ -3,37 +3,78 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f8fafc" />
   <title>Apartment Amotan Tracker</title>
+  <script>
+    (() => {
+      const saved = localStorage.getItem("apartment-theme");
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = saved || (prefersDark ? "dark" : "light");
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css" />
+  <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
 </head>
 <body class="is-loading">
   <main class="app-shell">
+    <div id="mobileNavOverlay" class="mobile-nav-overlay" hidden></div>
     <header class="topbar">
-      <div>
+      <button id="mobileMenuBtn" class="icon-btn mobile-menu-btn" type="button" aria-label="Open navigation" aria-controls="mainNav" aria-expanded="false">
+        <i data-lucide="menu" aria-hidden="true"></i>
+      </button>
+      <div class="topbar-title">
         <p class="eyebrow">Apartment Budget</p>
-        <h1>Dashboard</h1>
+        <h1 id="pageTitle">Dashboard</h1>
         <p class="subtitle">Simple shared tracker for ₱700 member payments, money in, expenses, and sobra.</p>
       </div>
       <div class="topbar-actions">
         <span id="syncStatus" class="status local">Starting...</span>
+        <button id="themeToggle" class="icon-btn" type="button" aria-label="Switch theme">
+          <i data-lucide="moon" aria-hidden="true"></i>
+        </button>
+        <button class="icon-btn" type="button" aria-label="Notifications" disabled>
+          <i data-lucide="bell" aria-hidden="true"></i>
+        </button>
         <div id="unlockBox" class="unlock-box">
+          <label for="passwordInput">Admin password</label>
           <input id="passwordInput" type="password" placeholder="Password" autocomplete="current-password" />
+          <button id="passwordToggle" class="icon-btn password-toggle" type="button" aria-label="Show password">
+            <i data-lucide="eye" aria-hidden="true"></i>
+          </button>
           <button id="unlockBtn" class="secondary-btn" type="button">Unlock</button>
         </div>
         <button id="lockBtn" class="ghost-btn" type="button">Lock</button>
       </div>
     </header>
 
-    <nav class="app-nav" aria-label="Main navigation">
-      <button class="nav-tab active" type="button" data-view="home">Tracker</button>
-      <button class="nav-tab" type="button" data-view="announcements">Announcements</button>
-      <button class="nav-tab" type="button" data-view="membersInfo">Members Info</button>
-      <button class="nav-tab" type="button" data-view="reports">Reports</button>
-      <button class="nav-tab" type="button" data-view="expenses">Expenses</button>
-      <button class="nav-tab" type="button" data-view="backup">Backup</button>
+    <nav id="mainNav" class="app-nav" aria-label="Main navigation">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">AT</div>
+        <div class="brand-copy">
+          <strong id="brandName">Apartment Tracker</strong>
+          <span>Management dashboard</span>
+        </div>
+        <button id="collapseNavBtn" class="icon-btn nav-collapse-btn" type="button" aria-label="Collapse sidebar" aria-pressed="false">
+          <i data-lucide="panel-left-close" aria-hidden="true"></i>
+        </button>
+      </div>
+      <button class="nav-tab active" type="button" data-view="home"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Dashboard</span></button>
+      <button class="nav-tab" type="button" data-view="announcements"><i data-lucide="megaphone" aria-hidden="true"></i><span>Announcements</span></button>
+      <button class="nav-tab" type="button" data-view="membersInfo"><i data-lucide="users-round" aria-hidden="true"></i><span>Residents</span></button>
+      <button class="nav-tab" type="button" data-view="reports"><i data-lucide="bar-chart-3" aria-hidden="true"></i><span>Reports</span></button>
+      <button class="nav-tab" type="button" data-view="expenses"><i data-lucide="receipt-text" aria-hidden="true"></i><span>Finance</span></button>
+      <button class="nav-tab" type="button" data-view="backup"><i data-lucide="settings" aria-hidden="true"></i><span>Settings</span></button>
     </nav>
 
     <section id="homeView" class="app-view active" data-view-panel="home">
+    <section class="welcome-panel">
+      <div>
+        <p class="eyebrow">Welcome back</p>
+        <h2>Here is what is happening in your apartment today.</h2>
+      </div>
+      <p id="dashboardPulse">Loading apartment records...</p>
+    </section>
+
     <section class="announcement-board panel" aria-labelledby="announcementBoardTitle">
       <div class="announcement-board-head">
         <div>
@@ -106,7 +147,10 @@
 
         <form id="memberForm" class="member-form">
           <div class="member-form-primary">
-            <input id="memberName" type="text" placeholder="Add member name" autocomplete="off" />
+            <label class="field">
+              <span>Member name <small>required</small></span>
+              <input id="memberName" type="text" placeholder="Add member name" autocomplete="off" required />
+            </label>
             <button type="submit" class="primary-btn">Add</button>
           </div>
           <details class="profile-fields">
@@ -154,9 +198,18 @@
               <span>Expense</span>
             </label>
           </div>
-          <input id="transactionAmount" type="number" min="0.01" step="0.01" placeholder="Amount" />
-          <input id="transactionDesc" type="text" placeholder="Description" />
-          <input id="transactionDate" type="date" />
+          <label class="field">
+            <span>Amount <small>required</small></span>
+            <input id="transactionAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required />
+          </label>
+          <label class="field">
+            <span>Description <small>required</small></span>
+            <input id="transactionDesc" type="text" placeholder="Short description" required />
+          </label>
+          <label class="field">
+            <span>Date</span>
+            <input id="transactionDate" type="date" />
+          </label>
           <button id="transactionSubmit" type="submit" class="success-btn">Add Money In</button>
         </form>
 
@@ -310,20 +363,39 @@
         <div id="announcementAdminContent" hidden>
           <form id="announcementForm" class="announcement-form">
             <input id="announcementId" type="hidden" />
-            <input id="announcementTitle" type="text" placeholder="Announcement title" autocomplete="off" />
-            <input id="announcementAuthor" type="text" placeholder="Author" autocomplete="off" />
-            <select id="announcementPriority" aria-label="Announcement priority">
-              <option value="normal">Normal</option>
-              <option value="important">Important</option>
-              <option value="urgent">Urgent</option>
-            </select>
-            <input id="announcementDate" type="date" aria-label="Announcement date" />
-            <input id="announcementSchedule" type="datetime-local" aria-label="Schedule publish date and time" />
+            <label class="field">
+              <span>Title <small>required</small></span>
+              <input id="announcementTitle" type="text" placeholder="Announcement title" autocomplete="off" maxlength="90" required />
+            </label>
+            <label class="field">
+              <span>Author</span>
+              <input id="announcementAuthor" type="text" placeholder="Author" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>Priority</span>
+              <select id="announcementPriority" aria-label="Announcement priority">
+                <option value="normal">Normal</option>
+                <option value="important">Important</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Publication date</span>
+              <input id="announcementDate" type="date" aria-label="Announcement date" />
+            </label>
+            <label class="field">
+              <span>Schedule date and time</span>
+              <input id="announcementSchedule" type="datetime-local" aria-label="Schedule publish date and time" />
+            </label>
             <label class="toggle-row announcement-pin">
               <input id="announcementPinned" type="checkbox" />
               <span>Pin this announcement</span>
             </label>
-            <textarea id="announcementMessage" placeholder="Write the announcement message"></textarea>
+            <label class="field announcement-message-field">
+              <span>Message <small>required</small></span>
+              <textarea id="announcementMessage" placeholder="Write the announcement message" maxlength="1200" required></textarea>
+              <small id="announcementCharacterGuide">0 / 1200 characters. Times use your browser timezone.</small>
+            </label>
             <div class="form-actions announcement-form-actions">
               <button id="saveAnnouncementDraft" class="secondary-btn" type="button">Save Draft</button>
               <button id="publishAnnouncement" class="primary-btn" type="button">Publish Now</button>
@@ -337,6 +409,36 @@
               <h2>All Announcements</h2>
               <p id="announcementAdminSummary">No announcements yet.</p>
             </div>
+          </div>
+          <div class="announcement-filters">
+            <label class="field">
+              <span>Search</span>
+              <input id="announcementSearch" type="text" placeholder="Search title, author, or message" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>Status</span>
+              <select id="announcementStatusFilter">
+                <option value="">All statuses</option>
+                <option value="draft">Draft</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="published">Published</option>
+                <option value="archived">Archived</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Priority</span>
+              <select id="announcementPriorityFilter">
+                <option value="">All priorities</option>
+                <option value="normal">Normal</option>
+                <option value="important">Important</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>From date</span>
+              <input id="announcementDateFilter" type="date" />
+            </label>
+            <button id="clearAnnouncementFilters" class="secondary-btn" type="button">Clear</button>
           </div>
           <div class="responsive-table">
             <table class="data-table">
@@ -365,7 +467,10 @@
           </div>
         </div>
         <div class="expense-filters">
-          <input id="memberInfoSearch" type="text" placeholder="Search members" autocomplete="off" />
+          <label class="field">
+            <span>Search residents</span>
+            <input id="memberInfoSearch" type="text" placeholder="Search members" autocomplete="off" />
+          </label>
           <button id="clearMemberInfoSearch" class="secondary-btn" type="button">Clear</button>
         </div>
         <div class="responsive-table">
@@ -470,14 +575,14 @@
         </div>
         <form id="expenseForm" class="expense-form">
           <input id="expenseId" type="hidden" />
-          <input id="expenseDate" type="date" aria-label="Expense date" />
-          <select id="expenseCategory" aria-label="Expense category"></select>
-          <input id="expenseDescription" type="text" placeholder="Description" autocomplete="off" />
-          <input id="expenseAmount" type="number" min="0.01" step="0.01" placeholder="Amount" />
-          <input id="expensePaidBy" type="text" placeholder="Paid By" autocomplete="off" />
-          <input id="expensePaymentMethod" type="text" placeholder="Payment Method" autocomplete="off" />
-          <input id="expenseReceiptNumber" type="text" placeholder="Receipt Number (optional)" autocomplete="off" />
-          <textarea id="expenseNotes" placeholder="Notes"></textarea>
+          <label class="field"><span>Date</span><input id="expenseDate" type="date" aria-label="Expense date" /></label>
+          <label class="field"><span>Category</span><select id="expenseCategory" aria-label="Expense category"></select></label>
+          <label class="field"><span>Description <small>required</small></span><input id="expenseDescription" type="text" placeholder="Description" autocomplete="off" required /></label>
+          <label class="field"><span>Amount <small>required</small></span><input id="expenseAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required /></label>
+          <label class="field"><span>Paid by</span><input id="expensePaidBy" type="text" placeholder="Name" autocomplete="off" /></label>
+          <label class="field"><span>Payment method</span><input id="expensePaymentMethod" type="text" placeholder="Cash, GCash, bank" autocomplete="off" /></label>
+          <label class="field"><span>Receipt number</span><input id="expenseReceiptNumber" type="text" placeholder="Optional" autocomplete="off" /></label>
+          <label class="field expense-notes-field"><span>Notes</span><textarea id="expenseNotes" placeholder="Notes"></textarea></label>
           <div class="form-actions">
             <button id="expenseSubmitBtn" class="danger-btn" type="submit">Add Expense</button>
             <button id="expenseCancelBtn" class="secondary-btn" type="button" hidden>Cancel Edit</button>
@@ -492,10 +597,10 @@
           </div>
         </div>
         <div class="expense-filters">
-          <input id="expenseSearch" type="text" placeholder="Search expenses" autocomplete="off" />
-          <select id="expenseFilterCategory" aria-label="Filter by category"></select>
-          <input id="expenseFilterStart" type="date" aria-label="Filter start date" />
-          <input id="expenseFilterEnd" type="date" aria-label="Filter end date" />
+          <label class="field"><span>Search</span><input id="expenseSearch" type="text" placeholder="Search expenses" autocomplete="off" /></label>
+          <label class="field"><span>Category</span><select id="expenseFilterCategory" aria-label="Filter by category"></select></label>
+          <label class="field"><span>Start date</span><input id="expenseFilterStart" type="date" aria-label="Filter start date" /></label>
+          <label class="field"><span>End date</span><input id="expenseFilterEnd" type="date" aria-label="Filter end date" /></label>
           <button id="clearExpenseFilters" class="secondary-btn" type="button">Clear</button>
         </div>
         <div class="responsive-table">
@@ -605,6 +710,27 @@
         <button id="closeAnnouncementPreview" class="ghost-btn" type="button">Close</button>
       </div>
       <div id="announcementPreviewBody" class="announcement-preview-body"></div>
+    </section>
+  </div>
+
+  <div id="confirmModal" class="modal-backdrop" hidden>
+    <section class="profile-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle" aria-describedby="confirmModalBody">
+      <div class="profile-modal-head">
+        <div>
+          <p class="eyebrow">Confirm action</p>
+          <h2 id="confirmModalTitle">Are you sure?</h2>
+        </div>
+        <button id="confirmCancelX" class="icon-btn" type="button" aria-label="Close confirmation">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="confirm-content">
+        <p id="confirmModalBody">This action cannot be undone.</p>
+        <div class="form-actions">
+          <button id="confirmCancelBtn" class="secondary-btn" type="button">Cancel</button>
+          <button id="confirmAcceptBtn" class="danger-btn" type="button">Confirm</button>
+        </div>
+      </div>
     </section>
   </div>
 
