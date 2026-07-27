@@ -2342,12 +2342,19 @@ textarea:focus {
 }
 
 .transaction-form {
-  grid-template-columns: minmax(210px, auto) 150px minmax(190px, 1fr) 160px auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: end;
 }
 
 .transaction-form .segmented {
+  grid-column: 1 / -1;
   align-self: end;
+  justify-self: start;
+}
+
+.transaction-form button {
+  grid-column: 1 / -1;
+  justify-self: stretch;
 }
 
 .expense-form {
@@ -2483,6 +2490,17 @@ textarea:focus {
   .announcement-form-actions,
   .expense-notes-field,
   .expense-form .form-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1320px) {
+  .transaction-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .transaction-form .segmented,
+  .transaction-form button {
     grid-column: 1 / -1;
   }
 }
