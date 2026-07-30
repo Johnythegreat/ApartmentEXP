@@ -2832,3 +2832,37 @@ async function boot() {
 }
 
 boot();
+
+// Premium dashboard quick actions
+(() => {
+  const toggle = document.getElementById("quickActionToggle");
+  const menu = document.getElementById("quickActionMenu");
+  if (!toggle || !menu) return;
+
+  const setOpen = (open) => {
+    menu.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.setAttribute("aria-label", open ? "Close quick actions" : "Open quick actions");
+    const icon = toggle.querySelector("i, svg");
+    if (icon?.setAttribute) icon.setAttribute("data-lucide", open ? "x" : "plus");
+    window.lucide?.createIcons?.({ attrs: { "stroke-width": 2 } });
+  };
+
+  toggle.addEventListener("click", () => setOpen(menu.hidden));
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#quickActions")) setOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setOpen(false);
+  });
+
+  menu.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-quick-view]");
+    if (!button) return;
+    const view = button.dataset.quickView;
+    document.querySelector(`.nav-tab[data-view="${view}"]`)?.click();
+    setOpen(false);
+    const focusId = button.dataset.quickFocus;
+    if (focusId) window.setTimeout(() => document.getElementById(focusId)?.focus(), 120);
+  });
+})();

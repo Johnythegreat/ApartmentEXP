@@ -734,6 +734,19 @@
     </section>
   </div>
 
+
+  <div class="quick-actions" id="quickActions">
+    <div class="quick-action-menu" id="quickActionMenu" hidden>
+      <button type="button" data-quick-view="announcements"><i data-lucide="megaphone"></i> New announcement</button>
+      <button type="button" data-quick-view="home" data-quick-focus="transactionAmount"><i data-lucide="circle-dollar-sign"></i> Add transaction</button>
+      <button type="button" data-quick-view="expenses"><i data-lucide="receipt-text"></i> Add expense</button>
+      <button type="button" data-quick-view="membersInfo"><i data-lucide="user-plus"></i> Add resident</button>
+    </div>
+    <button class="quick-action-toggle" id="quickActionToggle" type="button" aria-label="Open quick actions" aria-controls="quickActionMenu" aria-expanded="false">
+      <i data-lucide="plus"></i>
+    </button>
+  </div>
+
   <script type="module" src="app.js"></script>
 </body>
 </html>
