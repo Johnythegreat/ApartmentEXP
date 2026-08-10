@@ -1,16 +1,32 @@
-import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  onSnapshot,
-  enableIndexedDbPersistence,
-  serverTimestamp,
-  runTransaction
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+let initializeApp;
+let getApps;
+let getFirestore;
+let doc;
+let getDoc;
+let setDoc;
+let onSnapshot;
+let enableIndexedDbPersistence;
+let serverTimestamp;
+let runTransaction;
+let getAuth;
+let onAuthStateChanged;
+let signInWithEmailAndPassword;
+let signOut;
+let getFunctions;
+let httpsCallable;
+
+async function loadFirebaseSDK() {
+  const [appModule, firestoreModule, authModule, functionsModule] = await Promise.all([
+    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
+    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"),
+    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"),
+    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js")
+  ]);
+  ({ initializeApp, getApps } = appModule);
+  ({ getFirestore, doc, getDoc, setDoc, onSnapshot, enableIndexedDbPersistence, serverTimestamp, runTransaction } = firestoreModule);
+  ({ getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } = authModule);
+  ({ getFunctions, httpsCallable } = functionsModule);
+}
 
 const firebaseConfig = {
   apiKey: "AIzaSyDYE1h4hmU8ppSa18Jz-veC6GADBgsIa3g",
@@ -2954,6 +2970,7 @@ async function initFirebase() {
 
   try {
     setStatus("Connecting...", "local");
+    await loadFirebaseSDK();
     const app = getApps()[0] || initializeApp(firebaseConfig);
     auth = getAuth(app);
     functions = getFunctions(app);
@@ -3069,6 +3086,14 @@ async function boot() {
 }
 
 boot();
+
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch((error) => {
+      console.warn("Offline support could not be enabled:", error);
+    });
+  });
+}
 
 // Premium dashboard quick actions
 (() => {
