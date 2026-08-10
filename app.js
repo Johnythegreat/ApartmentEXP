@@ -2964,11 +2964,17 @@ async function initFirebase() {
     }, (error) => {
       console.error("Realtime listener failed:", error);
       setStatus("Local only", "local");
+      showNotice(error.code === "permission-denied"
+        ? "Firebase denied cloud access. Deploy the multi-workspace Firestore rules, then refresh and sign in again. Your browser copy remains available locally."
+        : "Realtime cloud sync stopped. Your browser copy remains available locally.", false);
     });
   } catch (error) {
     console.error("Firebase init failed:", error);
     state = loadLocal();
     setStatus("Local only", "local");
+    showNotice(error.code === "permission-denied"
+      ? "Firebase denied cloud access. Deploy the multi-workspace Firestore rules, then refresh and sign in again. Your browser copy remains available locally."
+      : `Cloud sync could not start${error.message ? `: ${error.message}` : "."} Your browser copy remains available locally.`, false);
   }
 }
 
