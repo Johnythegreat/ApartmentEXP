@@ -1,5 +1,6 @@
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
@@ -10,6 +11,48 @@ const SMTP_HOST = defineSecret("SMTP_HOST");
 const SMTP_USER = defineSecret("SMTP_USER");
 const SMTP_PASS = defineSecret("SMTP_PASS");
 const MAIL_FROM = defineSecret("MAIL_FROM");
+
+exports.createWorkspaceAccount = onCall(async (request) => {
+  if (!request.auth || request.auth.token.admin !== true) {
+    throw new HttpsError("permission-denied", "Only the platform administrator can create apartment workspaces.");
+  }
+  const name = String(request.data?.name || "").trim().slice(0, 80);
+  const slug = String(request.data?.slug || "").trim().toLowerCase();
+  const email = String(request.data?.email || "").trim().toLowerCase();
+  const password = String(request.data?.password || "");
+  if (!name) throw new HttpsError("invalid-argument", "Enter an apartment name.");
+  if (!/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(slug) || slug === "main") {
+    throw new HttpsError("invalid-argument", "Use a unique 3–40 character workspace name containing lowercase letters, numbers, and hyphens.");
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpsError("invalid-argument", "Enter a valid administrator email.");
+  if (password.length < 12) throw new HttpsError("invalid-argument", "Use a temporary password with at least 12 characters.");
+
+  const workspaceRef = database.collection("apartments").doc(slug);
+  if ((await workspaceRef.get()).exists) throw new HttpsError("already-exists", "That workspace link name is already in use.");
+
+  let user;
+  try {
+    user = await admin.auth().createUser({ email, password, emailVerified: false });
+    await admin.auth().setCustomUserClaims(user.uid, { workspaceId: slug, workspaceAdmin: true });
+    await workspaceRef.create({
+      members: [], announcements: [], income: [], expenses: [], rooms: [],
+      bills: {}, carryover: 0,
+      cycleStarted: new Date().toISOString().slice(0, 10),
+      settings: { apartmentName: name, autoBackup: { enabled: false, frequency: "weekly", lastRun: null } },
+      revision: 1,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: request.auth.uid
+    });
+  } catch (error) {
+    if (user?.uid) await admin.auth().deleteUser(user.uid).catch(() => {});
+    if (error.code === "auth/email-already-exists") throw new HttpsError("already-exists", "That email already has a Firebase account.");
+    if (error instanceof HttpsError) throw error;
+    console.error("Workspace provisioning failed", error);
+    throw new HttpsError("internal", "The workspace could not be created.");
+  }
+  return { workspaceId: slug, email };
+});
 
 exports.publishScheduledAnnouncements = onSchedule("every 5 minutes", async () => {
   const due = await database.collection("announcements")

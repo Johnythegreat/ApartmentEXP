@@ -1,4 +1,4 @@
-Apartment Amotan Tracker - Safety Upgrade
+Apartment Amotan Tracker - Multi-Workspace Safety Upgrade
 
 Upload these files to your GitHub Pages repo:
 - index.html
@@ -22,8 +22,13 @@ reads and writes for non-admin users because it contains resident and financial 
 If the badge says "Synced online", this signed-in browser can sync.
 If the badge says "Local only", Firestore is not enabled, rules are not published, or the browser/network blocked Firebase.
 
-Firestore document used by the app:
-budgetApp/apartment-amotan-main
+Firestore documents used by the app:
+apartments/{workspaceId}
+
+Your existing apartment is apartments/main. The old
+budgetApp/apartment-amotan-main document is read only for one-time migration.
+See MULTI_WORKSPACE_SETUP.md before deployment and before creating accounts for
+other apartments.
 
 Open the browser console to confirm reads and writes. Logs start with:
 [Firestore]
@@ -39,8 +44,7 @@ http://127.0.0.1:4173/?offline=1
 There is no shared/default admin password. Use the Firebase admin account.
 
 Before publishing the new rules, export a backup from the old app. After deploying
-the rules, sign in and verify the existing budgetApp/apartment-amotan-main document.
-The first upgraded write adds a numeric revision used for conflict detection.
+the rules and createWorkspaceAccount function, sign in and verify apartments/main.
 
 Cycle rollover is manual. When 15 days have elapsed, the app warns the admin instead
 of clearing income and expenses automatically. Download a backup and click End Cycle.

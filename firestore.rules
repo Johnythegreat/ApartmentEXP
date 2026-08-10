@@ -5,9 +5,20 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.admin == true;
     }
 
+    function isWorkspaceAdmin(workspaceId) {
+      return request.auth != null
+        && request.auth.token.workspaceAdmin == true
+        && request.auth.token.workspaceId == workspaceId;
+    }
+
     // The tracker contains finances and resident PII. Never expose it publicly.
     match /budgetApp/{docId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /apartments/{workspaceId} {
+      allow read, write: if isAdmin() || isWorkspaceAdmin(workspaceId);
     }
 
     match /announcements/{id} {

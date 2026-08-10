@@ -10,6 +10,7 @@ import {
   runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDYE1h4hmU8ppSa18Jz-veC6GADBgsIa3g",
@@ -28,12 +29,16 @@ const ELECTRICITY_AC_SHARE = 675;
 const params = new URLSearchParams(window.location.search);
 const OFFLINE_MODE = params.has("offline");
 const STORAGE_SCOPE = params.get("test");
+const requestedWorkspace = params.get("workspace") || "main";
+const WORKSPACE_ID = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(requestedWorkspace) ? requestedWorkspace : "main";
 const BASE_LOCAL_KEY = "apartment-amotan-state-v5";
-const LOCAL_KEY = STORAGE_SCOPE ? `${BASE_LOCAL_KEY}-${STORAGE_SCOPE}` : BASE_LOCAL_KEY;
+const WORKSPACE_LOCAL_KEY = WORKSPACE_ID === "main" ? BASE_LOCAL_KEY : `${BASE_LOCAL_KEY}-workspace-${WORKSPACE_ID}`;
+const LOCAL_KEY = STORAGE_SCOPE ? `${WORKSPACE_LOCAL_KEY}-${STORAGE_SCOPE}` : WORKSPACE_LOCAL_KEY;
 const LEGACY_LOCAL_KEYS = STORAGE_SCOPE ? [] : ["apartment-amotan-state-v4", "apartment-amotan-state-v3"];
-const FIRESTORE_COLLECTION = "budgetApp";
-const FIRESTORE_DOC_ID = "apartment-amotan-main";
+const FIRESTORE_COLLECTION = "apartments";
+const FIRESTORE_DOC_ID = WORKSPACE_ID;
 const FIRESTORE_DOC_PATH = `${FIRESTORE_COLLECTION}/${FIRESTORE_DOC_ID}`;
+const LEGACY_FIRESTORE_DOC_PATH = "budgetApp/apartment-amotan-main";
 const PROFILE_FIELDS = [
   { key: "fullName", label: "Full Name", inputId: "profileFullName" },
   { key: "nickname", label: "Nickname", inputId: "profileNickname" },
@@ -229,6 +234,8 @@ let state = defaultState();
 let unlocked = false;
 let docRef = null;
 let auth = null;
+let functions = null;
+let isPlatformAdmin = false;
 let cloudRevision = 0;
 let cloudConflict = false;
 let saveTimer = null;
@@ -336,6 +343,11 @@ function showNotice(text = "", hidden = true) {
 
 function setEditState() {
   $("editState").textContent = unlocked ? "Unlocked" : "Locked";
+  if ($("workspaceLabel")) {
+    const workspaceName = state.settings?.apartmentName || "Apartment Tracker";
+    $("workspaceLabel").textContent = `Workspace: ${workspaceName} (${WORKSPACE_ID})`;
+  }
+  if ($("workspaceManager")) $("workspaceManager").hidden = !isPlatformAdmin;
   $("passwordInput").value = "";
 }
 
@@ -1331,10 +1343,12 @@ async function unlockAdmin() {
   try {
     const credential = await signInWithEmailAndPassword(auth, email, password);
     const token = await credential.user.getIdTokenResult(true);
-    if (token.claims.admin !== true) {
+    const canAccessWorkspace = token.claims.admin === true || (token.claims.workspaceAdmin === true && token.claims.workspaceId === WORKSPACE_ID);
+    if (!canAccessWorkspace) {
       await signOut(auth);
-      throw new Error("This account does not have the admin claim.");
+      throw new Error("This account does not have access to this workspace link.");
     }
+    isPlatformAdmin = token.claims.admin === true;
     unlocked = true;
     setEditState();
     renderAnnouncements();
@@ -1343,6 +1357,39 @@ async function unlockAdmin() {
   } catch (error) {
     console.error("Admin sign-in failed:", error);
     showNotice(error.message || "Admin sign-in failed.", false);
+  }
+}
+
+function workspaceSlug(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+
+async function createWorkspaceAccount(event) {
+  event.preventDefault();
+  if (!isPlatformAdmin || !functions) return;
+  const name = $("newWorkspaceName").value.trim();
+  const slug = workspaceSlug($("newWorkspaceSlug").value || name);
+  const email = $("newWorkspaceEmail").value.trim().toLowerCase();
+  const password = $("newWorkspacePassword").value;
+  const output = $("workspaceCreateResult");
+  output.textContent = "Creating workspace…";
+  try {
+    const provision = httpsCallable(functions, "createWorkspaceAccount");
+    const result = await provision({ name, slug, email, password });
+    const link = `${window.location.origin}${window.location.pathname}?workspace=${encodeURIComponent(result.data.workspaceId)}`;
+    output.replaceChildren();
+    const message = document.createElement("p");
+    message.textContent = `Workspace created for ${email}. Send this link and the password separately:`;
+    const anchor = document.createElement("a");
+    anchor.href = link;
+    anchor.textContent = link;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    output.append(message, anchor);
+    event.target.reset();
+  } catch (error) {
+    console.error("Workspace creation failed:", error);
+    output.textContent = error.message || "Workspace creation failed.";
   }
 }
 
@@ -1805,9 +1852,11 @@ function bindEvents() {
   $("passwordInput").addEventListener("keydown", (event) => {
     if (event.key === "Enter") unlockAdmin();
   });
+  $("workspaceCreateForm")?.addEventListener("submit", createWorkspaceAccount);
 
   $("lockBtn").addEventListener("click", async () => {
     unlocked = false;
+    isPlatformAdmin = false;
     if (auth?.currentUser) await signOut(auth);
     docRef = null;
     setEditState();
@@ -2842,6 +2891,7 @@ async function initFirebase() {
     setStatus("Connecting...", "local");
     const app = getApps()[0] || initializeApp(firebaseConfig);
     auth = getAuth(app);
+    functions = getFunctions(app);
     const user = await new Promise((resolve) => {
       const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
         unsubscribe();
@@ -2854,11 +2904,15 @@ async function initFirebase() {
       return;
     }
     const token = await user.getIdTokenResult();
-    if (token.claims.admin !== true) {
+    const canAccessWorkspace = token.claims.admin === true || (token.claims.workspaceAdmin === true && token.claims.workspaceId === WORKSPACE_ID);
+    if (!canAccessWorkspace) {
       unlocked = false;
-      setStatus("Unauthorized account", "local");
+      isPlatformAdmin = false;
+      setStatus("Wrong workspace account", "local");
+      showNotice("This account cannot open this apartment workspace. Use the exact link supplied by the platform administrator.", false);
       return;
     }
+    isPlatformAdmin = token.claims.admin === true;
     unlocked = true;
     const db = getFirestore(app);
     enableIndexedDbPersistence(db).catch(() => {});
@@ -2872,7 +2926,15 @@ async function initFirebase() {
       cloudRevision = Number(snap.data().revision || 0);
     } else {
       const localState = loadLocal();
-      if (hasMeaningfulLocalData(localState)) {
+      let legacyState = null;
+      if (WORKSPACE_ID === "main" && isPlatformAdmin) {
+        const legacySnapshot = await getDoc(doc(db, "budgetApp", "apartment-amotan-main"));
+        if (legacySnapshot.exists()) legacyState = normalizeState(legacySnapshot.data());
+      }
+      if (legacyState && hasMeaningfulLocalData(legacyState)) {
+        console.info(`[Firestore] migrating legacy tracker into ${FIRESTORE_DOC_PATH}`);
+        state = legacyState;
+      } else if (hasMeaningfulLocalData(localState)) {
         console.info(`[Firestore] remote empty, seeding from local storage into ${FIRESTORE_DOC_PATH}`);
         state = localState;
       } else {

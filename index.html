@@ -29,6 +29,7 @@
       </div>
       <div class="topbar-actions">
         <span id="syncStatus" class="status local">Starting...</span>
+        <span id="workspaceLabel" class="pill">Workspace: main</span>
         <button id="themeToggle" class="icon-btn" type="button" aria-label="Switch theme">
           <i data-lucide="moon" aria-hidden="true"></i>
         </button>
@@ -626,6 +627,34 @@
 
     <section id="backupView" class="app-view" data-view-panel="backup" hidden>
       <section class="backup-grid">
+        <article id="workspaceManager" class="panel" hidden>
+          <div class="panel-heading">
+            <div>
+              <h2>Create Another Apartment</h2>
+              <p>Create an isolated workspace and its first administrator account.</p>
+            </div>
+          </div>
+          <form id="workspaceCreateForm" class="settings-form">
+            <label class="field">
+              <span>Apartment name</span>
+              <input id="newWorkspaceName" type="text" maxlength="80" placeholder="Example: Sunrise Apartments" required />
+            </label>
+            <label class="field">
+              <span>Workspace link name</span>
+              <input id="newWorkspaceSlug" type="text" maxlength="40" placeholder="sunrise-apartments" pattern="[a-z0-9][a-z0-9-]{1,38}[a-z0-9]" />
+            </label>
+            <label class="field">
+              <span>Administrator email</span>
+              <input id="newWorkspaceEmail" type="email" autocomplete="off" required />
+            </label>
+            <label class="field">
+              <span>Temporary password</span>
+              <input id="newWorkspacePassword" type="password" minlength="12" autocomplete="new-password" required />
+            </label>
+            <button class="primary-btn" type="submit">Create Workspace &amp; Login</button>
+          </form>
+          <div id="workspaceCreateResult" class="restore-preview" aria-live="polite"></div>
+        </article>
         <article class="panel">
           <div class="panel-heading">
             <div>
