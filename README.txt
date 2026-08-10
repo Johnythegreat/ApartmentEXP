@@ -1,4 +1,4 @@
-Apartment Amotan Tracker - Realtime Firebase Version
+Apartment Amotan Tracker - Safety Upgrade
 
 Upload these files to your GitHub Pages repo:
 - index.html
@@ -15,7 +15,11 @@ Important Firebase setup:
 6. Publish.
 7. Hard refresh your GitHub Pages site: Ctrl + Shift + R.
 
-If the badge says "Synced online", phone and laptop will sync.
+Enable Firebase Authentication (Email/Password), create the admin user, and assign
+that user an `admin: true` custom claim. The tracker intentionally refuses cloud
+reads and writes for non-admin users because it contains resident and financial data.
+
+If the badge says "Synced online", this signed-in browser can sync.
 If the badge says "Local only", Firestore is not enabled, rules are not published, or the browser/network blocked Firebase.
 
 Firestore document used by the app:
@@ -32,4 +36,11 @@ The app now uses one simple transaction form:
 For local design testing without Firebase writes, open:
 http://127.0.0.1:4173/?offline=1
 
-Admin password: Master
+There is no shared/default admin password. Use the Firebase admin account.
+
+Before publishing the new rules, export a backup from the old app. After deploying
+the rules, sign in and verify the existing budgetApp/apartment-amotan-main document.
+The first upgraded write adds a numeric revision used for conflict detection.
+
+Cycle rollover is manual. When 15 days have elapsed, the app warns the admin instead
+of clearing income and expenses automatically. Download a backup and click End Cycle.

@@ -1,4 +1,4 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getFirestore,
   doc,
@@ -6,8 +6,10 @@ import {
   setDoc,
   onSnapshot,
   enableIndexedDbPersistence,
-  serverTimestamp
+  serverTimestamp,
+  runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDYE1h4hmU8ppSa18Jz-veC6GADBgsIa3g",
@@ -19,7 +21,6 @@ const firebaseConfig = {
   measurementId: "G-QY4MJ62VFZ"
 };
 
-const PASSWORD = "Master";
 const AMOTAN_AMOUNT = 700;
 const CYCLE_DAYS = 15;
 const ELECTRICITY_AC_CHARGE = 1350;
@@ -48,6 +49,7 @@ const PROFILE_FIELDS = [
   { key: "notes", label: "Notes / Biography", inputId: "profileNotes" }
 ];
 const PROFILE_PHOTO_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const BACKUP_MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const EXPENSE_CATEGORIES = [
   "Electricity",
   "Water",
@@ -224,8 +226,11 @@ function normalizeSettings(settings = {}) {
 }
 
 let state = defaultState();
-let unlocked = sessionStorage.getItem("amotUnlock") === "yes";
+let unlocked = false;
 let docRef = null;
+let auth = null;
+let cloudRevision = 0;
+let cloudConflict = false;
 let saveTimer = null;
 let applyingRemote = false;
 let activeProfileMemberId = null;
@@ -291,13 +296,30 @@ function loadLocal() {
   try {
     const raw = localStorage.getItem(LOCAL_KEY) || LEGACY_LOCAL_KEYS.map((key) => localStorage.getItem(key)).find(Boolean);
     return raw ? normalizeState(JSON.parse(raw)) : defaultState();
-  } catch {
+  } catch (error) {
+    console.error("Local data could not be read; preserving the damaged value for recovery.", error);
     return defaultState();
   }
 }
 
 function saveLocal() {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify({ ...state, updatedAt: Date.now() }));
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify({ ...state, updatedAt: Date.now() }));
+  } catch (error) {
+    console.error("Local save failed:", error);
+    showNotice("This browser could not save locally. Download a backup before continuing.", false);
+  }
+}
+
+function saveRecoverySnapshot(reason, data = state) {
+  try {
+    const key = `${LOCAL_KEY}-recovery`;
+    const snapshots = JSON.parse(localStorage.getItem(key) || "[]");
+    snapshots.unshift({ reason, savedAt: new Date().toISOString(), data: normalizeState(data) });
+    localStorage.setItem(key, JSON.stringify(snapshots.slice(0, 5)));
+  } catch (error) {
+    console.warn("Recovery snapshot could not be stored:", error);
+  }
 }
 
 function setStatus(text, mode) {
@@ -478,7 +500,7 @@ function resizeImageDataURL(dataURL) {
 
 async function profilePhotoFromFile(file) {
   if (!file) return "";
-  if (!file.type.startsWith("image/")) throw new Error("Choose an image file for the profile photo.");
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("Choose a JPEG, PNG, or WebP profile photo.");
   if (file.size > PROFILE_PHOTO_MAX_UPLOAD_BYTES) throw new Error("Profile photo must be 5 MB or smaller.");
   return resizeImageDataURL(await readFileAsDataURL(file));
 }
@@ -1216,6 +1238,7 @@ function downloadBackup(format = "json") {
 }
 
 async function readBackupFile(file) {
+  if (file.size > BACKUP_MAX_UPLOAD_BYTES) throw new Error("Backup files must be 20 MB or smaller.");
   const buffer = await file.arrayBuffer();
   if (file.name.toLowerCase().endsWith(".zip")) {
     return extractBackupJsonFromZip(buffer);
@@ -1237,6 +1260,7 @@ function extractBackupJsonFromZip(buffer) {
     const name = decoder.decode(bytes.slice(nameStart, nameStart + nameLength));
     const dataStart = nameStart + nameLength + extraLength;
     if (name === "backup.json" && compressed === 0) {
+      if (size > BACKUP_MAX_UPLOAD_BYTES || dataStart + size > bytes.length) throw new Error("Backup ZIP is invalid or too large.");
       return decoder.decode(bytes.slice(dataStart, dataStart + size));
     }
   }
@@ -1246,10 +1270,11 @@ function extractBackupJsonFromZip(buffer) {
 function validateBackupPayload(payload) {
   const data = payload?.data || payload;
   if (!data || typeof data !== "object") throw new Error("Backup file is empty or invalid.");
-  const normalized = normalizeState(data);
-  if (!Array.isArray(normalized.members) || !Array.isArray(normalized.income) || !Array.isArray(normalized.expenses)) {
-    throw new Error("Backup is missing required tracker records.");
+  if (!Array.isArray(data.members) || !Array.isArray(data.income) || !Array.isArray(data.expenses)) {
+    throw new Error("Backup is missing required members, income, or expense records.");
   }
+  if (payload?.app && payload.app !== "Apartment Amotan Tracker") throw new Error("This backup belongs to a different application.");
+  const normalized = normalizeState(data);
   return normalized;
 }
 
@@ -1288,16 +1313,37 @@ function runAutoBackupIfDue() {
 
 function requireUnlock() {
   if (unlocked) return true;
-  const entered = $("passwordInput").value.trim();
-  if (entered === PASSWORD) {
-    unlocked = true;
-    sessionStorage.setItem("amotUnlock", "yes");
-    setEditState();
-    showNotice("Unlocked for editing.", false);
-    return true;
-  }
-  showNotice("Enter the correct password to edit.", false);
+  showNotice("Sign in with an authorized Firebase admin account to edit.", false);
   return false;
+}
+
+async function unlockAdmin() {
+  if (OFFLINE_MODE) {
+    showNotice("Admin editing is disabled in offline preview mode.", false);
+    return;
+  }
+  const email = $("adminEmailInput").value.trim();
+  const password = $("passwordInput").value;
+  if (!email || !password || !auth) {
+    showNotice("Enter your admin email and password.", false);
+    return;
+  }
+  try {
+    const credential = await signInWithEmailAndPassword(auth, email, password);
+    const token = await credential.user.getIdTokenResult(true);
+    if (token.claims.admin !== true) {
+      await signOut(auth);
+      throw new Error("This account does not have the admin claim.");
+    }
+    unlocked = true;
+    setEditState();
+    renderAnnouncements();
+    showNotice("Admin signed in. Loading the shared tracker…", false);
+    await initFirebase();
+  } catch (error) {
+    console.error("Admin sign-in failed:", error);
+    showNotice(error.message || "Admin sign-in failed.", false);
+  }
 }
 
 function scheduleSave() {
@@ -1308,19 +1354,36 @@ function scheduleSave() {
     console.warn("Automatic backup skipped:", error);
   }
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveCloudNow, 250);
+  if (!cloudConflict) saveTimer = setTimeout(saveCloudNow, 350);
 }
 
 async function saveCloudNow() {
   saveLocal();
   if (OFFLINE_MODE || !docRef || applyingRemote) return;
   try {
-    logFirestore("write setDoc", "scheduled save");
-    await setDoc(docRef, { ...state, updatedAt: serverTimestamp() }, { merge: true });
+    const expectedRevision = cloudRevision;
+    const payload = normalizeState(state);
+    logFirestore("write transaction", `expected revision ${expectedRevision}`);
+    const nextRevision = await runTransaction(docRef.firestore, async (transaction) => {
+      const snapshot = await transaction.get(docRef);
+      const remoteRevision = Number(snapshot.data()?.revision || 0);
+      if (remoteRevision !== expectedRevision) throw new Error("SYNC_CONFLICT");
+      const revision = remoteRevision + 1;
+      transaction.set(docRef, { ...payload, revision, updatedAt: serverTimestamp() });
+      return revision;
+    });
+    cloudRevision = nextRevision;
     setStatus("Synced online", "online");
     showNotice("", true);
   } catch (error) {
     console.error("Cloud save failed:", error);
+    if (error.message === "SYNC_CONFLICT") {
+      cloudConflict = true;
+      saveRecoverySnapshot("Cloud conflict: unsynced local version");
+      setStatus("Sync conflict", "local");
+      showNotice("Another device changed the tracker. Your version was saved in browser recovery snapshots and was not allowed to overwrite newer cloud data. Refresh to load the latest cloud copy.", false);
+      return;
+    }
     setStatus("Local only", "local");
     showNotice("Saved locally. Firestore is offline or blocked.", false);
   }
@@ -1628,6 +1691,7 @@ function renderSummary() {
 }
 
 function endCycle() {
+  saveRecoverySnapshot("Before ending cycle");
   const totals = calcTotals();
   state = {
     ...state,
@@ -1642,6 +1706,7 @@ function endCycle() {
 }
 
 function clearActivity() {
+  saveRecoverySnapshot("Before clearing activity");
   state = {
     ...state,
     income: [],
@@ -1653,7 +1718,7 @@ function clearActivity() {
 
 function checkAutoCycle() {
   if (daysBetween(state.cycleStarted, todayISO()) >= CYCLE_DAYS) {
-    endCycle();
+    showNotice("This cycle is due to end. Review the totals, download a backup, then use End Cycle when ready.", false);
   }
 }
 
@@ -1736,13 +1801,15 @@ function bindEvents() {
     }
   });
 
-  $("unlockBtn").addEventListener("click", () => {
-    if (requireUnlock()) render();
+  $("unlockBtn").addEventListener("click", unlockAdmin);
+  $("passwordInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") unlockAdmin();
   });
 
-  $("lockBtn").addEventListener("click", () => {
+  $("lockBtn").addEventListener("click", async () => {
     unlocked = false;
-    sessionStorage.removeItem("amotUnlock");
+    if (auth?.currentUser) await signOut(auth);
+    docRef = null;
     setEditState();
     renderAnnouncements();
     showNotice("Locked. Enter the password again to edit.", false);
@@ -2156,6 +2223,7 @@ function bindEvents() {
       danger: true
     });
     if (!ok) return;
+    saveRecoverySnapshot("Before restoring backup");
     state = normalizeState(pendingRestoreState);
     pendingRestoreState = null;
     $("restoreFile").value = "";
@@ -2197,6 +2265,7 @@ function bindEvents() {
       danger: true
     });
     if (!ok) return;
+    saveRecoverySnapshot("Before deleting all data");
     state = defaultState();
     deleteBackupDownloaded = false;
     $("deleteConfirmInput").value = "";
@@ -2771,7 +2840,26 @@ async function initFirebase() {
 
   try {
     setStatus("Connecting...", "local");
-    const app = initializeApp(firebaseConfig);
+    const app = getApps()[0] || initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    const user = await new Promise((resolve) => {
+      const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+        unsubscribe();
+        resolve(nextUser);
+      });
+    });
+    if (!user) {
+      unlocked = false;
+      setStatus("Admin sign-in required", "local");
+      return;
+    }
+    const token = await user.getIdTokenResult();
+    if (token.claims.admin !== true) {
+      unlocked = false;
+      setStatus("Unauthorized account", "local");
+      return;
+    }
+    unlocked = true;
     const db = getFirestore(app);
     enableIndexedDbPersistence(db).catch(() => {});
     docRef = doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID);
@@ -2781,6 +2869,7 @@ async function initFirebase() {
     if (snap.exists()) {
       console.info(`[Firestore] loaded snapshot from ${FIRESTORE_DOC_PATH}`);
       state = normalizeState(snap.data());
+      cloudRevision = Number(snap.data().revision || 0);
     } else {
       const localState = loadLocal();
       if (hasMeaningfulLocalData(localState)) {
@@ -2791,16 +2880,20 @@ async function initFirebase() {
         console.info(`[Firestore] remote empty and local empty; initializing ${FIRESTORE_DOC_PATH}`);
       }
       logFirestore("write setDoc", "initial seed");
-      await setDoc(docRef, { ...state, updatedAt: serverTimestamp() }, { merge: true });
+      cloudRevision = 1;
+      await setDoc(docRef, { ...state, revision: cloudRevision, updatedAt: serverTimestamp() });
     }
 
     setStatus("Synced online", "online");
 
     onSnapshot(docRef, (snapshot) => {
       if (!snapshot.exists()) return;
+      if (snapshot.metadata.hasPendingWrites) return;
       applyingRemote = true;
       logFirestore("listener snapshot", `exists=${snapshot.exists()}`);
       state = normalizeState(snapshot.data());
+      cloudRevision = Number(snapshot.data().revision || 0);
+      cloudConflict = false;
       saveLocal();
       checkAutoCycle();
       render();

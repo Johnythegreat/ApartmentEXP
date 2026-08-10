@@ -36,7 +36,8 @@
           <i data-lucide="bell" aria-hidden="true"></i>
         </button>
         <div id="unlockBox" class="unlock-box">
-          <label for="passwordInput">Admin password</label>
+          <label for="adminEmailInput">Admin sign in</label>
+          <input id="adminEmailInput" type="email" placeholder="Admin email" autocomplete="username" />
           <input id="passwordInput" type="password" placeholder="Password" autocomplete="current-password" />
           <button id="passwordToggle" class="icon-btn password-toggle" type="button" aria-label="Show password">
             <i data-lucide="eye" aria-hidden="true"></i>
@@ -358,7 +359,7 @@
           <span id="announcementAdminState" class="pill">Locked</span>
         </div>
         <div id="announcementAdminGate" class="admin-gate">
-          Unlock the tracker using the password above to manage announcements.
+          Sign in with a Firebase admin account above to manage announcements.
         </div>
         <div id="announcementAdminContent" hidden>
           <form id="announcementForm" class="announcement-form">
