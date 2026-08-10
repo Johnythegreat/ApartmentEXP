@@ -21,6 +21,13 @@ service cloud.firestore {
       allow read, write: if isAdmin() || isWorkspaceAdmin(workspaceId);
     }
 
+    // Sanitized financial transparency view: readable without an account,
+    // writable only by an administrator assigned to that apartment.
+    match /publicApartmentViews/{workspaceId} {
+      allow read: if true;
+      allow write: if isAdmin() || isWorkspaceAdmin(workspaceId);
+    }
+
     match /announcements/{id} {
       allow read: if isAdmin() || resource.data.status == 'published';
       allow create, update, delete: if isAdmin();

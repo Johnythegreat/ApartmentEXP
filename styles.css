@@ -2251,19 +2251,25 @@ textarea:focus {
 
 .unlock-box {
   display: grid;
-  grid-template-columns: auto minmax(120px, 150px) 44px auto;
+  grid-template-columns: minmax(200px, 1fr) 44px auto;
   gap: var(--space-2);
+  width: min(100%, 390px);
   padding: var(--space-1);
   background: var(--surface-secondary);
 }
 
 .unlock-box label {
+  grid-column: 1 / -1;
   align-self: center;
   padding-left: var(--space-2);
   color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.unlock-box #adminEmailInput {
+  grid-column: 1 / -1;
 }
 
 .unlock-box input {
@@ -2611,7 +2617,7 @@ textarea:focus {
   }
 
   .unlock-box {
-    grid-template-columns: 1fr 44px auto;
+    grid-template-columns: minmax(0, 1fr) 44px auto;
     width: 100%;
   }
 

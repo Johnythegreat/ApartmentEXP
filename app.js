@@ -238,6 +238,9 @@ let functions = null;
 let isPlatformAdmin = false;
 let cloudRevision = 0;
 let cloudConflict = false;
+let persistenceInitialized = false;
+let publicDocRef = null;
+let publicUnsubscribe = null;
 let saveTimer = null;
 let applyingRemote = false;
 let activeProfileMemberId = null;
@@ -343,12 +346,68 @@ function showNotice(text = "", hidden = true) {
 
 function setEditState() {
   $("editState").textContent = unlocked ? "Unlocked" : "Locked";
+  if ($("unlockBox")) $("unlockBox").hidden = unlocked;
+  if ($("lockBtn")) $("lockBtn").hidden = !unlocked;
   if ($("workspaceLabel")) {
     const workspaceName = state.settings?.apartmentName || "Apartment Tracker";
     $("workspaceLabel").textContent = `Workspace: ${workspaceName} (${WORKSPACE_ID})`;
   }
   if ($("workspaceManager")) $("workspaceManager").hidden = !isPlatformAdmin;
   $("passwordInput").value = "";
+}
+
+function publicStatePayload() {
+  const cleanMember = (member) => ({ id: member.id, name: profileName(member), paid: Boolean(member.paid) });
+  const cleanTransaction = (item) => ({
+    id: item.id, date: item.date, amount: Number(item.amount || 0),
+    description: String(item.description || ""),
+    ...(item.category ? { category: item.category } : {})
+  });
+  const cleanBill = (bill) => ({
+    id: bill.id, name: bill.name, amount: Number(bill.amount || 0), date: bill.date,
+    members: Array.isArray(bill.members) ? bill.members : [],
+    paidMembers: Array.isArray(bill.paidMembers) ? bill.paidMembers : [],
+    airconMembers: Array.isArray(bill.airconMembers) ? bill.airconMembers : []
+  });
+  return {
+    workspaceId: WORKSPACE_ID,
+    members: state.members.map(cleanMember),
+    announcements: state.announcements.filter(announcementIsPublic),
+    income: state.income.map(cleanTransaction),
+    expenses: state.expenses.map(cleanTransaction),
+    bills: { electricity: cleanBill(state.bills.electricity), water: cleanBill(state.bills.water) },
+    rooms: [],
+    settings: { apartmentName: state.settings.apartmentName },
+    carryover: Number(state.carryover || 0),
+    cycleStarted: state.cycleStarted,
+    publishedAt: serverTimestamp()
+  };
+}
+
+async function loadPublicWorkspace(db) {
+  publicUnsubscribe?.();
+  publicDocRef = doc(db, "publicApartmentViews", WORKSPACE_ID);
+  const snapshot = await getDoc(publicDocRef);
+  if (snapshot.exists()) {
+    state = normalizeState(snapshot.data());
+    render();
+    setStatus("Public view", "online");
+    showNotice("Read-only transparency view. Sign in only if you are an apartment administrator.", false);
+  } else {
+    state = defaultState();
+    render();
+    setStatus("Public view", "local");
+    showNotice("The administrator has not published this workspace's transparency view yet.", false);
+  }
+  publicUnsubscribe = onSnapshot(publicDocRef, (nextSnapshot) => {
+    if (!nextSnapshot.exists() || unlocked) return;
+    state = normalizeState(nextSnapshot.data());
+    render();
+    setStatus("Public view", "online");
+  }, (error) => {
+    console.error("Public workspace listener failed:", error);
+    setStatus("Public view unavailable", "local");
+  });
 }
 
 function daysBetween(startISO, endISO) {
@@ -1330,6 +1389,10 @@ function requireUnlock() {
 }
 
 async function unlockAdmin() {
+  if (unlocked && auth?.currentUser && docRef) {
+    showNotice("", true);
+    return;
+  }
   if (OFFLINE_MODE) {
     showNotice("Admin editing is disabled in offline preview mode.", false);
     return;
@@ -1420,6 +1483,7 @@ async function saveCloudNow() {
       return revision;
     });
     cloudRevision = nextRevision;
+    await setDoc(doc(docRef.firestore, "publicApartmentViews", WORKSPACE_ID), publicStatePayload());
     setStatus("Synced online", "online");
     showNotice("", true);
   } catch (error) {
@@ -1861,7 +1925,8 @@ function bindEvents() {
     docRef = null;
     setEditState();
     renderAnnouncements();
-    showNotice("Locked. Enter the password again to edit.", false);
+    const app = getApps()[0];
+    if (app) await loadPublicWorkspace(getFirestore(app));
   });
 
   document.querySelectorAll(".nav-tab").forEach((tab) => {
@@ -2892,6 +2957,13 @@ async function initFirebase() {
     const app = getApps()[0] || initializeApp(firebaseConfig);
     auth = getAuth(app);
     functions = getFunctions(app);
+    const db = getFirestore(app);
+    if (!persistenceInitialized) {
+      persistenceInitialized = true;
+      await enableIndexedDbPersistence(db).catch((error) => {
+        console.warn("Offline Firestore persistence is unavailable in this browser session:", error);
+      });
+    }
     const user = await new Promise((resolve) => {
       const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
         unsubscribe();
@@ -2900,7 +2972,8 @@ async function initFirebase() {
     });
     if (!user) {
       unlocked = false;
-      setStatus("Admin sign-in required", "local");
+      isPlatformAdmin = false;
+      await loadPublicWorkspace(db);
       return;
     }
     const token = await user.getIdTokenResult();
@@ -2910,12 +2983,13 @@ async function initFirebase() {
       isPlatformAdmin = false;
       setStatus("Wrong workspace account", "local");
       showNotice("This account cannot open this apartment workspace. Use the exact link supplied by the platform administrator.", false);
+      await loadPublicWorkspace(db);
       return;
     }
     isPlatformAdmin = token.claims.admin === true;
     unlocked = true;
-    const db = getFirestore(app);
-    enableIndexedDbPersistence(db).catch(() => {});
+    publicUnsubscribe?.();
+    publicUnsubscribe = null;
     docRef = doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID);
 
     logFirestore("read getDoc");
@@ -2946,7 +3020,9 @@ async function initFirebase() {
       await setDoc(docRef, { ...state, revision: cloudRevision, updatedAt: serverTimestamp() });
     }
 
+    await setDoc(doc(db, "publicApartmentViews", WORKSPACE_ID), publicStatePayload());
     setStatus("Synced online", "online");
+    showNotice("", true);
 
     onSnapshot(docRef, (snapshot) => {
       if (!snapshot.exists()) return;

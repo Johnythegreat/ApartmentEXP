@@ -6,6 +6,7 @@
 - Every additional apartment uses its own `apartments/{workspaceId}` document and a workspace-specific browser storage key.
 - A platform administrator has the existing Firebase custom claim `{ admin: true }` and can open every workspace and create new ones.
 - A created apartment administrator receives `{ workspaceId, workspaceAdmin: true }` and can open only that apartment's exact link.
+- Visitors who open a workspace link without signing in receive a sanitized, read-only transparency view. It includes payment status and financial transactions but excludes resident contact/profile data and all editing features.
 
 ## Deploy once
 
@@ -21,6 +22,8 @@ firebase deploy --only firestore:rules,functions:createWorkspaceAccount,hosting
 ```
 
 The first time the platform administrator opens the deployed site, the app migrates the old `budgetApp/apartment-amotan-main` data into `apartments/main`. Export a backup before deployment and confirm the new document before removing any legacy data.
+
+After deploying the updated rules and website, sign into each workspace once. This publishes its initial sanitized `publicApartmentViews/{workspaceId}` document. After that, every administrator save refreshes the public view automatically.
 
 ## Create and share an apartment
 
