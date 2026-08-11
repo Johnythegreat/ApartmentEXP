@@ -29,7 +29,11 @@
         <h1 id="pageTitle">Dashboard</h1>
         <p class="subtitle">Payments, expenses, and shared bills.</p>
       </div>
-      <div class="topbar-actions">
+      <button id="topbarMenuBtn" class="icon-btn topbar-menu-btn" type="button" aria-label="Open account menu" aria-controls="topbarActions" aria-expanded="false">
+        <i data-lucide="user-round" aria-hidden="true"></i>
+        <i data-lucide="chevron-down" aria-hidden="true"></i>
+      </button>
+      <div id="topbarActions" class="topbar-actions">
         <span id="syncStatus" class="status local">Starting...</span>
         <span id="workspaceLabel" class="pill">Workspace: main</span>
         <button id="themeToggle" class="icon-btn" type="button" aria-label="Switch theme">

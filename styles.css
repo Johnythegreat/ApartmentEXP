@@ -2965,6 +2965,7 @@ textarea { min-height: 120px; }
 }
 .topbar-title .subtitle { max-width: 34rem; }
 .topbar .eyebrow { display: none; }
+.topbar-menu-btn { display: none; }
 
 .welcome-panel {
   min-height: 0;
@@ -3113,6 +3114,59 @@ textarea { min-height: 96px; }
   .members-panel { order: initial; }
 }
 
+@media (max-width: 1180px) {
+  .topbar {
+    position: relative;
+    min-height: 86px;
+    grid-template-columns: auto minmax(0,1fr) auto;
+    align-items: center;
+  }
+  .topbar-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: auto;
+    min-width: 48px;
+    padding-inline: 10px;
+  }
+  .topbar-menu-btn svg:first-child { width: 19px; height: 19px; }
+  .topbar-menu-btn svg:last-child { width: 14px; height: 14px; }
+  .topbar-actions {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 8px);
+    right: 0;
+    display: none;
+    width: min(380px, calc(100vw - 32px));
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: 0 18px 40px rgba(16,24,40,.18);
+  }
+  .topbar-actions.is-open {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+  }
+  .topbar-actions > .status,
+  .topbar-actions > #workspaceLabel { justify-self: start; }
+  .topbar-actions > #workspaceLabel {
+    grid-column: 1 / -1;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .topbar-actions > .unlock-box {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+  .topbar-actions > #lockBtn { grid-column: 1 / -1; justify-self: stretch; }
+}
+
 @media (max-width: 560px) {
   :root { --section-gap: 16px; }
   .welcome-panel { padding: 20px; }
@@ -3124,4 +3178,16 @@ textarea { min-height: 96px; }
   .dashboard-disclosure .utility-grid { padding: 0 12px 12px; }
   .dashboard-disclosure .admin-panel { margin: 0 12px 12px; }
   .dashboard-disclosure > summary { padding-inline: 14px; }
+  .topbar {
+    min-height: 72px;
+    padding: 14px;
+  }
+  .topbar-title .subtitle { display: none; }
+  .topbar-title h1 { font-size: clamp(1.45rem,8vw,1.9rem); }
+  .topbar-actions { right: 0; }
+  .topbar-actions.is-open { grid-template-columns: 1fr auto; }
+  .topbar-actions > .status { grid-column: 1; }
+  .topbar-actions > #workspaceLabel,
+  .topbar-actions > .unlock-box,
+  .topbar-actions > #lockBtn { grid-column: 1 / -1; }
 }

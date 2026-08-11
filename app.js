@@ -485,6 +485,18 @@ function setMobileNav(open) {
   if ($("mobileMenuBtn")) $("mobileMenuBtn").setAttribute("aria-expanded", String(open));
 }
 
+function setTopbarMenu(open) {
+  const menu = $("topbarActions");
+  const button = $("topbarMenuBtn");
+  if (!menu || !button) return;
+  menu.classList.toggle("is-open", open);
+  button.setAttribute("aria-expanded", String(open));
+  button.setAttribute("aria-label", open ? "Close account menu" : "Open account menu");
+  const chevron = button.querySelector('[data-lucide="chevron-down"], [data-lucide="chevron-up"]');
+  if (chevron) chevron.setAttribute("data-lucide", open ? "chevron-up" : "chevron-down");
+  refreshIcons();
+}
+
 function focusableElements(container) {
   return [...container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
     .filter((el) => !el.disabled && el.offsetParent !== null);
@@ -1891,6 +1903,12 @@ function bindEvents() {
   setSidebarCollapsed(localStorage.getItem(SIDEBAR_KEY) === "yes");
 
   $("themeToggle")?.addEventListener("click", toggleTheme);
+  $("topbarMenuBtn")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setTopbarMenu(!$("topbarActions")?.classList.contains("is-open"));
+  });
+  $("topbarActions")?.addEventListener("click", (event) => event.stopPropagation());
+  document.addEventListener("click", () => setTopbarMenu(false));
   $("mobileMenuBtn")?.addEventListener("click", () => setMobileNav(!document.body.classList.contains("nav-open")));
   $("mobileNavOverlay")?.addEventListener("click", () => setMobileNav(false));
   $("collapseNavBtn")?.addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed")));
@@ -1909,6 +1927,7 @@ function bindEvents() {
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+      setTopbarMenu(false);
       if (!$("confirmModal")?.hidden) closeConfirm(false);
       if (!$("profileModal")?.hidden) closeProfileModal();
       if (!$("announcementPreviewModal")?.hidden) $("announcementPreviewModal").hidden = true;
