@@ -21,6 +21,42 @@ cd ..
 firebase deploy --only firestore:rules,functions:createWorkspaceAccount,hosting
 ```
 
+## Daily Telegram backup
+
+The `sendDailyTelegramBackup` Cloud Function exports every document in the
+`apartments` collection to one JSON file and sends it to Telegram every day at
+2:00 AM Asia/Manila time. The bot token and destination chat ID are stored as
+Firebase secrets and are never exposed in the website.
+
+1. In Telegram, open `@BotFather`, run `/newbot`, and save the bot token.
+2. Open the new bot and press **Start** (or add it to the destination group and
+   send a message there). A bot cannot initiate a private conversation.
+3. In PowerShell, enter the bot token when prompted and inspect the latest
+   message. Copy its `chat.id`; group chat IDs commonly begin with `-`:
+
+```powershell
+$telegramToken = Read-Host "Telegram bot token"
+(Invoke-RestMethod "https://api.telegram.org/bot$telegramToken/getUpdates").result | ConvertTo-Json -Depth 10
+Remove-Variable telegramToken
+```
+4. From this project directory, save both values as Firebase secrets:
+
+```bash
+firebase functions:secrets:set TELEGRAM_BOT_TOKEN
+firebase functions:secrets:set TELEGRAM_CHAT_ID
+```
+
+5. Deploy the scheduled backup function:
+
+```bash
+firebase deploy --only functions:sendDailyTelegramBackup
+```
+
+The Firebase project must use the Blaze plan because scheduled functions use
+Cloud Scheduler. After deployment, check the Firebase Functions logs after the
+first scheduled run. Do not paste the bot token into `app.js`, source control,
+or a public chat.
+
 The first time the platform administrator opens the deployed site, the app migrates the old `budgetApp/apartment-amotan-main` data into `apartments/main`. Export a backup before deployment and confirm the new document before removing any legacy data.
 
 After deploying the updated rules and website, sign into each workspace once. This publishes its initial sanitized `publicApartmentViews/{workspaceId}` document. After that, every administrator save refreshes the public view automatically.

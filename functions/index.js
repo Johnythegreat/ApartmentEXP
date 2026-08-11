@@ -11,6 +11,68 @@ const SMTP_HOST = defineSecret("SMTP_HOST");
 const SMTP_USER = defineSecret("SMTP_USER");
 const SMTP_PASS = defineSecret("SMTP_PASS");
 const MAIL_FROM = defineSecret("MAIL_FROM");
+const TELEGRAM_BOT_TOKEN = defineSecret("TELEGRAM_BOT_TOKEN");
+const TELEGRAM_CHAT_ID = defineSecret("TELEGRAM_CHAT_ID");
+
+const TELEGRAM_BACKUP_MAX_BYTES = 45 * 1024 * 1024;
+
+function backupDateInManila(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+}
+
+async function sendTelegramDocument({ token, chatId, filename, contents, caption }) {
+  const bytes = Buffer.from(contents, "utf8");
+  if (bytes.byteLength > TELEGRAM_BACKUP_MAX_BYTES) {
+    throw new Error(`Telegram backup is too large (${bytes.byteLength} bytes).`);
+  }
+  const form = new FormData();
+  form.append("chat_id", chatId);
+  form.append("caption", caption.slice(0, 1024));
+  form.append("document", new Blob([bytes], { type: "application/json" }), filename);
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+    method: "POST",
+    body: form
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result?.ok) {
+    throw new Error(`Telegram rejected the backup: ${result?.description || response.statusText || response.status}`);
+  }
+}
+
+exports.sendDailyTelegramBackup = onSchedule({
+  schedule: "0 2 * * *",
+  timeZone: "Asia/Manila",
+  retryCount: 3,
+  secrets: [TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]
+}, async () => {
+  const snapshot = await database.collection("apartments").get();
+  const exportedAt = new Date();
+  const backup = {
+    app: "Apartment Amotan Tracker",
+    version: 1,
+    exportedAt: exportedAt.toISOString(),
+    projectId: process.env.GCLOUD_PROJECT || null,
+    workspaceCount: snapshot.size,
+    workspaces: snapshot.docs.map((document) => ({
+      id: document.id,
+      data: document.data()
+    }))
+  };
+  const date = backupDateInManila(exportedAt);
+  await sendTelegramDocument({
+    token: TELEGRAM_BOT_TOKEN.value(),
+    chatId: TELEGRAM_CHAT_ID.value(),
+    filename: `apartment-tracker-backup-${date}.json`,
+    contents: JSON.stringify(backup, null, 2),
+    caption: `Daily Apartment Tracker backup for ${date} (${snapshot.size} workspace${snapshot.size === 1 ? "" : "s"}).`
+  });
+  console.info(`Daily Telegram backup sent for ${snapshot.size} workspace(s).`);
+});
 
 exports.createWorkspaceAccount = onCall(async (request) => {
   if (!request.auth || request.auth.token.admin !== true) {

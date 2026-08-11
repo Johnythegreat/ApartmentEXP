@@ -27,7 +27,7 @@
       <div class="topbar-title">
         <p class="eyebrow">Apartment Budget</p>
         <h1 id="pageTitle">Dashboard</h1>
-        <p class="subtitle">Simple shared tracker for ₱700 member payments, money in, expenses, and sobra.</p>
+        <p class="subtitle">Payments, expenses, and shared bills.</p>
       </div>
       <div class="topbar-actions">
         <span id="syncStatus" class="status local">Starting...</span>
@@ -56,25 +56,25 @@
         <div class="brand-mark" aria-hidden="true">AT</div>
         <div class="brand-copy">
           <strong id="brandName">Apartment Tracker</strong>
-          <span>Management dashboard</span>
+          <span>Apartment management</span>
         </div>
         <button id="collapseNavBtn" class="icon-btn nav-collapse-btn" type="button" aria-label="Collapse sidebar" aria-pressed="false">
           <i data-lucide="panel-left-close" aria-hidden="true"></i>
         </button>
       </div>
       <button class="nav-tab active" type="button" data-view="home"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Dashboard</span></button>
-      <button class="nav-tab" type="button" data-view="announcements"><i data-lucide="megaphone" aria-hidden="true"></i><span>Announcements</span></button>
+      <button class="nav-tab" type="button" data-view="announcements"><i data-lucide="megaphone" aria-hidden="true"></i><span>Updates</span></button>
       <button class="nav-tab" type="button" data-view="membersInfo"><i data-lucide="users-round" aria-hidden="true"></i><span>Residents</span></button>
       <button class="nav-tab" type="button" data-view="reports"><i data-lucide="bar-chart-3" aria-hidden="true"></i><span>Reports</span></button>
       <button class="nav-tab" type="button" data-view="expenses"><i data-lucide="receipt-text" aria-hidden="true"></i><span>Finance</span></button>
-      <button class="nav-tab" type="button" data-view="backup"><i data-lucide="settings" aria-hidden="true"></i><span>Settings</span></button>
+      <button class="nav-tab nav-secondary" type="button" data-view="backup"><i data-lucide="settings" aria-hidden="true"></i><span>Settings</span></button>
     </nav>
 
     <section id="homeView" class="app-view active" data-view-panel="home">
     <section class="welcome-panel">
       <div>
-        <p class="eyebrow">Welcome back</p>
-        <h2>Here is what is happening in your apartment today.</h2>
+        <p class="eyebrow">Today</p>
+        <h2>Your apartment at a glance.</h2>
       </div>
       <p id="dashboardPulse">Loading apartment records...</p>
     </section>
@@ -82,8 +82,8 @@
     <section class="announcement-board panel" aria-labelledby="announcementBoardTitle">
       <div class="announcement-board-head">
         <div>
-          <p class="eyebrow">Community Updates</p>
-          <h2 id="announcementBoardTitle">Announcements</h2>
+          <p class="eyebrow">Important</p>
+          <h2 id="announcementBoardTitle">Updates</h2>
         </div>
         <span id="announcementCount" class="pill">0 published</span>
       </div>
@@ -116,6 +116,8 @@
 
     <section id="notice" class="notice" hidden></section>
 
+    <details class="dashboard-disclosure utility-overview">
+      <summary><span><i data-lucide="gauge" aria-hidden="true"></i> Utility overview</span><small>4 totals</small></summary>
     <section class="bill-dashboard" aria-label="Utility bill summary">
       <article class="summary-card">
         <span>Electricity Bill Total</span>
@@ -138,17 +140,20 @@
         <small>Unpaid utility bill shares</small>
       </article>
     </section>
+    </details>
 
     <section class="workspace-grid">
       <section class="panel members-panel">
         <div class="panel-heading">
           <div>
-            <h2>Members</h2>
-            <p>Check a member once they pay ₱700.</p>
+            <h2>Residents</h2>
+            <p>Track ₱700 payments.</p>
           </div>
           <span id="editState" class="pill">Locked</span>
         </div>
 
+        <details class="inline-disclosure">
+          <summary><i data-lucide="user-plus" aria-hidden="true"></i> Add resident</summary>
         <form id="memberForm" class="member-form">
           <div class="member-form-primary">
             <label class="field">
@@ -179,6 +184,7 @@
             </div>
           </details>
         </form>
+        </details>
 
         <div id="membersList" class="member-list"></div>
       </section>
@@ -186,11 +192,13 @@
       <section class="panel transactions-panel">
         <div class="panel-heading">
           <div>
-            <h2>Add Transaction</h2>
-            <p>Use one form for money in and money out.</p>
+            <h2>Activity</h2>
+            <p>Income and expenses.</p>
           </div>
         </div>
 
+        <details class="inline-disclosure">
+          <summary><i data-lucide="circle-plus" aria-hidden="true"></i> Add transaction</summary>
         <form id="transactionForm" class="transaction-form">
           <div class="segmented" role="radiogroup" aria-label="Transaction type">
             <label>
@@ -216,10 +224,11 @@
           </label>
           <button id="transactionSubmit" type="submit" class="success-btn">Add Money In</button>
         </form>
+        </details>
 
         <div class="panel-heading compact">
           <div>
-            <h2>Recent Activity</h2>
+            <h2>Recent</h2>
             <p id="activityTotals">No entries yet.</p>
           </div>
         </div>
@@ -227,12 +236,14 @@
       </section>
     </section>
 
+    <details class="dashboard-disclosure utility-tools">
+      <summary><span><i data-lucide="bolt" aria-hidden="true"></i> Utility bills & cycle tools</span><small>Details</small></summary>
     <section class="utility-grid">
       <section class="panel bill-panel">
         <div class="panel-heading">
           <div>
             <h2>Electricity Bill</h2>
-            <p>Aircon charge is ₱1,350, split ₱675 each between two selected aircon users.</p>
+            <p>Includes ₱675 per selected aircon user.</p>
           </div>
         </div>
         <div class="bill-controls">
@@ -250,7 +261,7 @@
           <div class="panel-heading compact">
             <div>
               <h2>Household Members</h2>
-              <p>Select members included in the bill, then choose up to two aircon users.</p>
+              <p>Select members and up to two aircon users.</p>
             </div>
           </div>
           <div id="electricityMembers" class="bill-member-list"></div>
@@ -286,7 +297,7 @@
         <div class="panel-heading">
           <div>
             <h2>Water Bill</h2>
-            <p>Split equally across every selected household member.</p>
+            <p>Split equally between selected members.</p>
           </div>
         </div>
         <div class="bill-controls">
@@ -304,7 +315,7 @@
           <div class="panel-heading compact">
             <div>
               <h2>Household Members</h2>
-              <p>Select members included in the water bill.</p>
+              <p>Select included members.</p>
             </div>
           </div>
           <div id="waterMembers" class="bill-member-list"></div>
@@ -341,7 +352,7 @@
       <div class="panel-heading">
         <div>
           <h2>Cycle Tools</h2>
-          <p>End the cycle to keep the remaining balance as next cycle's sobra.</p>
+          <p>Carry the remaining balance into the next cycle.</p>
         </div>
       </div>
       <div class="admin-actions">
@@ -350,14 +361,15 @@
         <button id="clearAllBtn" class="danger-btn" type="button">Clear Everything</button>
       </div>
     </section>
+    </details>
     </section>
 
     <section id="announcementsView" class="app-view" data-view-panel="announcements" hidden>
       <section class="panel">
         <div class="panel-heading">
           <div>
-            <h2>Announcement Management</h2>
-            <p>Create public updates, save drafts, schedule publishing, and archive old notices.</p>
+            <h2>Updates</h2>
+            <p>Publish, schedule, or archive.</p>
           </div>
           <span id="announcementAdminState" class="pill">Locked</span>
         </div>
@@ -466,8 +478,8 @@
       <section class="panel">
         <div class="panel-heading">
           <div>
-            <h2>Members Info</h2>
-            <p>View member profiles, birthdays, rooms, and contact details.</p>
+            <h2>Residents</h2>
+            <p>Profiles and contact details.</p>
           </div>
         </div>
         <div class="expense-filters">
@@ -501,8 +513,8 @@
       <section class="panel reports-panel">
         <div class="panel-heading">
           <div>
-            <h2>Reports Dashboard</h2>
-            <p>See what came in, what went out, and what still needs attention.</p>
+            <h2>Reports</h2>
+            <p>Income, spending, and collections.</p>
           </div>
           <div class="report-actions">
             <button id="exportPdfBtn" class="secondary-btn" type="button">PDF</button>
@@ -573,8 +585,8 @@
       <section class="panel">
         <div class="panel-heading">
           <div>
-            <h2>Expense Management</h2>
-            <p>Add, update, search, and filter apartment expenses.</p>
+            <h2>Add Expense</h2>
+            <p>Record a new payment.</p>
           </div>
         </div>
         <form id="expenseForm" class="expense-form">

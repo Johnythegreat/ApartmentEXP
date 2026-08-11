@@ -140,7 +140,6 @@ h1 {
 .pill {
   width: auto;
   justify-content: flex-start;
-}
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2936,4 +2935,193 @@ textarea { min-height: 120px; }
   .summary-card { padding:20px 18px 18px 70px; }
   .summary-card::before { left:16px; top:18px; }
   .announcement-board-list { padding:14px; }
+}
+
+/* Minimal dashboard refinement */
+:root {
+  --radius-card: 16px;
+  --radius-control: 10px;
+  --section-gap: 24px;
+}
+
+.app-shell { gap: var(--section-gap); }
+.app-view { gap: var(--section-gap); }
+
+.app-nav::after,
+.welcome-panel::before,
+.welcome-panel::after { display: none; }
+
+.app-nav { padding-bottom: 18px; }
+.nav-tab { min-height: 44px; border-radius: 9px; }
+.nav-tab.active,
+.nav-tab[aria-current="page"] { background: rgba(255,255,255,.09); }
+.nav-tab.active::before,
+.nav-tab[aria-current="page"]::before { top: 12px; bottom: 12px; box-shadow: none; }
+.nav-secondary { margin-top: auto; }
+
+.topbar {
+  border-radius: var(--radius-card);
+  box-shadow: 0 4px 18px rgba(16,24,40,.05);
+}
+.topbar-title .subtitle { max-width: 34rem; }
+.topbar .eyebrow { display: none; }
+
+.welcome-panel {
+  min-height: 0;
+  padding: 24px 26px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+.welcome-panel .eyebrow { color: var(--primary); }
+.welcome-panel h2 { max-width: none; font-size: clamp(1.3rem, 2.2vw, 1.75rem); }
+.welcome-panel > p { color: var(--text-secondary); }
+
+.panel,
+.announcement-board {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: 0 3px 14px rgba(16,24,40,.045);
+}
+.panel-heading,
+.announcement-board-head { padding: 20px 20px 14px; }
+.panel-heading p,
+.announcement-board-head p { max-width: 46rem; }
+
+.announcement-board-head { background: var(--surface); }
+.announcement-board-list { padding: 16px 20px; }
+.announcement-item,
+.announcement-item:hover { transform: none; box-shadow: none; }
+
+.summary-grid,
+.bill-dashboard { gap: 12px; }
+.summary-card {
+  min-height: 108px;
+  padding: 18px 18px 16px;
+  border-radius: var(--radius-card);
+  box-shadow: none;
+}
+.summary-card::before { display: none; }
+.summary-card:hover { transform: none; box-shadow: 0 4px 16px rgba(16,24,40,.06); }
+.summary-card > span { font-size: .78rem; }
+.summary-card > strong { margin-top: 8px; font-size: clamp(1.35rem, 2.4vw, 1.85rem); }
+.summary-card > small { margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.balance-card { background: color-mix(in srgb,var(--primary) 7%,var(--surface)); }
+
+.workspace-grid { align-items: start; }
+.transactions-panel { order: 1; }
+.members-panel { order: 2; }
+
+.inline-disclosure {
+  margin: 0 20px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-secondary);
+}
+.inline-disclosure > summary,
+.dashboard-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 0 14px;
+  color: var(--text-primary);
+  font-weight: 750;
+  cursor: pointer;
+  list-style: none;
+}
+.inline-disclosure > summary::-webkit-details-marker,
+.dashboard-disclosure > summary::-webkit-details-marker { display: none; }
+.inline-disclosure > summary::after,
+.dashboard-disclosure > summary::after {
+  content: "+";
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 1.15rem;
+}
+.inline-disclosure[open] > summary::after,
+.dashboard-disclosure[open] > summary::after { content: "–"; }
+.inline-disclosure > summary svg,
+.dashboard-disclosure > summary svg { width: 17px; height: 17px; color: var(--primary); }
+.inline-disclosure .member-form,
+.inline-disclosure .transaction-form { padding: 4px 14px 14px; }
+
+.dashboard-disclosure {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.dashboard-disclosure > summary { min-height: 58px; padding-inline: 20px; }
+.dashboard-disclosure > summary > span { display: inline-flex; align-items: center; gap: 10px; }
+.dashboard-disclosure > summary > small { margin-left: auto; color: var(--text-secondary); font-weight: 600; }
+.dashboard-disclosure > summary::after { margin-left: 4px; }
+.dashboard-disclosure .bill-dashboard,
+.dashboard-disclosure .utility-grid { padding: 0 18px 18px; }
+.dashboard-disclosure .admin-panel { margin: 0 18px 18px; }
+
+.bill-stat-grid { gap: 10px; }
+.bill-stat-grid > div { padding: 14px; }
+.bill-lists { gap: 12px; }
+
+.primary-btn,
+.success-btn,
+.warn-btn,
+.danger-btn,
+.secondary-btn,
+.ghost-btn {
+  min-height: 40px;
+  border-radius: var(--radius-control);
+  box-shadow: none;
+}
+.primary-btn:hover,
+.success-btn:hover,
+.warn-btn:hover,
+.danger-btn:hover { transform: none; box-shadow: none; }
+.mini { min-height: 32px; border-radius: 8px; }
+
+input[type="text"], input[type="number"], input[type="date"], input[type="datetime-local"], input[type="password"], input[type="tel"], input[type="email"], input[type="url"], select, textarea {
+  min-height: 42px;
+  border-radius: var(--radius-control);
+}
+textarea { min-height: 96px; }
+
+.chart-panel .panel-heading p { display: none; }
+.report-grid,
+.report-tables { gap: 16px; }
+.data-table th,
+.bill-table th { height: 42px; }
+.data-table td,
+.bill-table td { padding-top: 11px; padding-bottom: 11px; }
+
+.quick-action-toggle {
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+  background: var(--primary);
+  box-shadow: 0 10px 24px color-mix(in srgb,var(--primary) 28%,transparent);
+}
+.quick-action-toggle:hover { transform: none; }
+
+@media (max-width: 860px) {
+  .nav-secondary { margin-top: 0; }
+  .welcome-panel { min-height: 0; }
+  .workspace-grid { grid-template-columns: 1fr; }
+  .transactions-panel,
+  .members-panel { order: initial; }
+}
+
+@media (max-width: 560px) {
+  :root { --section-gap: 16px; }
+  .welcome-panel { padding: 20px; }
+  .summary-card { padding: 16px; min-height: 96px; }
+  .summary-grid,
+  .bill-dashboard { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .summary-card > small { display: none; }
+  .dashboard-disclosure .bill-dashboard,
+  .dashboard-disclosure .utility-grid { padding: 0 12px 12px; }
+  .dashboard-disclosure .admin-panel { margin: 0 12px 12px; }
+  .dashboard-disclosure > summary { padding-inline: 14px; }
 }
