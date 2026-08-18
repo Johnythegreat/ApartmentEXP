@@ -1,32 +1,17 @@
-let initializeApp;
-let getApps;
-let getFirestore;
-let doc;
-let getDoc;
-let setDoc;
-let onSnapshot;
-let enableIndexedDbPersistence;
-let serverTimestamp;
-let runTransaction;
-let getAuth;
-let onAuthStateChanged;
-let signInWithEmailAndPassword;
-let signOut;
-let getFunctions;
-let httpsCallable;
-
-async function loadFirebaseSDK() {
-  const [appModule, firestoreModule, authModule, functionsModule] = await Promise.all([
-    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
-    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"),
-    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"),
-    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js")
-  ]);
-  ({ initializeApp, getApps } = appModule);
-  ({ getFirestore, doc, getDoc, setDoc, onSnapshot, enableIndexedDbPersistence, serverTimestamp, runTransaction } = firestoreModule);
-  ({ getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } = authModule);
-  ({ getFunctions, httpsCallable } = functionsModule);
-}
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  getDocFromServer,
+  setDoc,
+  onSnapshot,
+  enableIndexedDbPersistence,
+  serverTimestamp,
+  runTransaction
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDYE1h4hmU8ppSa18Jz-veC6GADBgsIa3g",
@@ -483,18 +468,6 @@ function setMobileNav(open) {
   document.body.classList.toggle("nav-open", open);
   if ($("mobileNavOverlay")) $("mobileNavOverlay").hidden = !open;
   if ($("mobileMenuBtn")) $("mobileMenuBtn").setAttribute("aria-expanded", String(open));
-}
-
-function setTopbarMenu(open) {
-  const menu = $("topbarActions");
-  const button = $("topbarMenuBtn");
-  if (!menu || !button) return;
-  menu.classList.toggle("is-open", open);
-  button.setAttribute("aria-expanded", String(open));
-  button.setAttribute("aria-label", open ? "Close account menu" : "Open account menu");
-  const chevron = button.querySelector('[data-lucide="chevron-down"], [data-lucide="chevron-up"]');
-  if (chevron) chevron.setAttribute("data-lucide", open ? "chevron-up" : "chevron-down");
-  refreshIcons();
 }
 
 function focusableElements(container) {
@@ -1903,12 +1876,6 @@ function bindEvents() {
   setSidebarCollapsed(localStorage.getItem(SIDEBAR_KEY) === "yes");
 
   $("themeToggle")?.addEventListener("click", toggleTheme);
-  $("topbarMenuBtn")?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setTopbarMenu(!$("topbarActions")?.classList.contains("is-open"));
-  });
-  $("topbarActions")?.addEventListener("click", (event) => event.stopPropagation());
-  document.addEventListener("click", () => setTopbarMenu(false));
   $("mobileMenuBtn")?.addEventListener("click", () => setMobileNav(!document.body.classList.contains("nav-open")));
   $("mobileNavOverlay")?.addEventListener("click", () => setMobileNav(false));
   $("collapseNavBtn")?.addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed")));
@@ -1927,7 +1894,6 @@ function bindEvents() {
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      setTopbarMenu(false);
       if (!$("confirmModal")?.hidden) closeConfirm(false);
       if (!$("profileModal")?.hidden) closeProfileModal();
       if (!$("announcementPreviewModal")?.hidden) $("announcementPreviewModal").hidden = true;
@@ -2989,7 +2955,6 @@ async function initFirebase() {
 
   try {
     setStatus("Connecting...", "local");
-    await loadFirebaseSDK();
     const app = getApps()[0] || initializeApp(firebaseConfig);
     auth = getAuth(app);
     functions = getFunctions(app);
@@ -3029,7 +2994,9 @@ async function initFirebase() {
     docRef = doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID);
 
     logFirestore("read getDoc");
-    const snap = await getDoc(docRef);
+    // Conflict checks must start from the authoritative cloud revision, not a
+    // potentially stale IndexedDB snapshot left by an earlier browser session.
+    const snap = await getDocFromServer(docRef);
     if (snap.exists()) {
       console.info(`[Firestore] loaded snapshot from ${FIRESTORE_DOC_PATH}`);
       state = normalizeState(snap.data());
@@ -3105,14 +3072,6 @@ async function boot() {
 }
 
 boot();
-
-if ("serviceWorker" in navigator && window.isSecureContext) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch((error) => {
-      console.warn("Offline support could not be enabled:", error);
-    });
-  });
-}
 
 // Premium dashboard quick actions
 (() => {
