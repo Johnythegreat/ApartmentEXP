@@ -297,6 +297,7 @@ function normalizeBill(bill, name, key) {
     amount: Number(bill?.amount || 0),
     members: Array.isArray(bill?.members) ? bill.members : [],
     paidMembers: Array.isArray(bill?.paidMembers) ? bill.paidMembers : [],
+    paidDates: bill?.paidDates && typeof bill.paidDates === "object" ? bill.paidDates : {},
     weights: bill?.weights && typeof bill.weights === "object" ? bill.weights : {},
     date: bill?.date || todayISO(),
     airconMembers: Array.isArray(bill?.airconMembers) ? bill.airconMembers.slice(0, 2) : []
@@ -1630,6 +1631,7 @@ function renderMembers() {
         <span>${escapeHTML(profileName(m))}</span>
       </label>
       <strong>${m.paid ? money(AMOTAN_AMOUNT) : "Unpaid"}</strong>
+      ${m.paid ? `<button class="mini receipt-btn" data-kind="amotan" data-id="${m.id}" type="button">Receipt</button>` : ""}
       <button class="mini danger delete-member" data-id="${m.id}" type="button">Delete</button>
     </div>
   `).join("");
@@ -1807,7 +1809,7 @@ function endCycle() {
   const totals = calcTotals();
   state = {
     ...state,
-    members: state.members.map((m) => ({ ...m, paid: false })),
+    members: state.members.map((m) => ({ ...m, paid: false, paidAt: "" })),
     income: [],
     expenses: [],
     carryover: Math.max(0, totals.remaining),
@@ -1857,14 +1859,293 @@ function ensureAirconMembers(targetState = state) {
 
 function updateBillPaidStatus(billKey, memberId, checked) {
   const bill = state.bills[billKey];
+  if (!bill.paidDates || typeof bill.paidDates !== "object") bill.paidDates = {};
   if (checked) {
     if (!bill.paidMembers.includes(memberId)) bill.paidMembers.push(memberId);
+    bill.paidDates[memberId] = todayISO();
   } else {
     bill.paidMembers = bill.paidMembers.filter((id) => id !== memberId);
+    delete bill.paidDates[memberId];
   }
 }
 
+// ---------- Receipts ----------
+let activeReceipt = null;
+
+function receiptDateLabel(iso) {
+  const date = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(date.getTime())
+    ? String(iso || "")
+    : date.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" });
+}
+
+function receiptHash(text) {
+  let h = 0;
+  for (const ch of String(text)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h.toString(36).toUpperCase().padStart(4, "0").slice(-4);
+}
+
+function buildReceipt(kind, memberId) {
+  const member = state.members.find((m) => m.id === memberId);
+  if (!member) return null;
+  const base = {
+    kind,
+    apartment: state.settings?.apartmentName || "Apartment Tracker",
+    resident: profileName(member),
+    room: member.profile?.apartmentRoom || "",
+    receivedBy: "Apartment Admin"
+  };
+
+  if (kind === "amotan") {
+    if (!member.paid) return null;
+    const paidAt = member.paidAt || todayISO();
+    const period = state.cycleStarted || paidAt;
+    return {
+      ...base,
+      title: "Amotan Contribution",
+      paidAt,
+      periodLabel: `Cycle starting ${receiptDateLabel(period)}`,
+      lines: [{ label: "Amotan contribution", amount: AMOTAN_AMOUNT }],
+      total: AMOTAN_AMOUNT,
+      number: `AMO-${String(period).replaceAll("-", "")}-${receiptHash(`${kind}${memberId}${period}`)}`
+    };
+  }
+
+  const bill = state.bills[kind];
+  if (!bill || !bill.paidMembers.includes(memberId)) return null;
+  const row = getBillData(kind).rows.find((r) => r.id === memberId);
+  if (!row) return null;
+  const paidAt = bill.paidDates?.[memberId] || todayISO();
+  const period = bill.date || paidAt;
+  const label = kind === "electricity" ? "Electricity Bill" : "Water Bill";
+  const lines = [{ label: `${label} share`, amount: row.share }];
+  if (row.airconCharge) lines.push({ label: "Aircon charge", amount: row.airconCharge });
+  return {
+    ...base,
+    title: label,
+    paidAt,
+    periodLabel: `Bill dated ${receiptDateLabel(period)}`,
+    lines,
+    total: row.totalDue,
+    number: `${kind === "electricity" ? "ELEC" : "WTR"}-${String(period).replaceAll("-", "")}-${receiptHash(`${kind}${memberId}${period}`)}`
+  };
+}
+
+function receiptMarkup(r) {
+  return `
+    <div class="receipt-paper" id="receiptPaper">
+      <div class="receipt-head">
+        <strong>${escapeHTML(r.apartment)}</strong>
+        <span>Official Payment Receipt</span>
+      </div>
+      <div class="receipt-row"><span>Receipt No.</span><strong>${escapeHTML(r.number)}</strong></div>
+      <div class="receipt-row"><span>Date Paid</span><strong>${escapeHTML(receiptDateLabel(r.paidAt))}</strong></div>
+      <div class="receipt-row"><span>Received From</span><strong>${escapeHTML(r.resident)}</strong></div>
+      ${r.room ? `<div class="receipt-row"><span>Room</span><strong>${escapeHTML(r.room)}</strong></div>` : ""}
+      <div class="receipt-row"><span>Payment For</span><strong>${escapeHTML(r.title)}</strong></div>
+      <div class="receipt-row"><span>Period</span><strong>${escapeHTML(r.periodLabel)}</strong></div>
+      <div class="receipt-lines">
+        ${r.lines.map((l) => `<div class="receipt-row"><span>${escapeHTML(l.label)}</span><strong>${money(l.amount)}</strong></div>`).join("")}
+      </div>
+      <div class="receipt-total"><span>Total Paid</span><strong>${money(r.total)}</strong></div>
+      <div class="receipt-stamp">PAID</div>
+      <p class="receipt-foot">Received by ${escapeHTML(r.receivedBy)}. Thank you!</p>
+    </div>
+  `;
+}
+
+function receiptText(r) {
+  return [
+    r.apartment,
+    "OFFICIAL PAYMENT RECEIPT",
+    "",
+    `Receipt No.: ${r.number}`,
+    `Date Paid: ${receiptDateLabel(r.paidAt)}`,
+    `Received From: ${r.resident}${r.room ? ` (${r.room})` : ""}`,
+    `Payment For: ${r.title}`,
+    `Period: ${r.periodLabel}`,
+    ...r.lines.map((l) => `${l.label}: ${money(l.amount)}`),
+    `TOTAL PAID: ${money(r.total)}`,
+    "Status: PAID",
+    "",
+    `Received by ${r.receivedBy}. Thank you!`
+  ].join("\n");
+}
+
+function openReceipt(kind, memberId) {
+  const receipt = buildReceipt(kind, memberId);
+  if (!receipt) return;
+  activeReceipt = receipt;
+  $("receiptModalBody").innerHTML = receiptMarkup(receipt);
+  $("receiptModal").hidden = false;
+}
+
+function closeReceipt() {
+  $("receiptModal").hidden = true;
+  document.body.classList.remove("printing-receipt");
+  activeReceipt = null;
+}
+
+function receiptCanvas(r) {
+  const W = 760, pad = 52, scale = 2;
+  const H = 560 + r.lines.length * 44 + (r.room ? 44 : 0);
+  const canvas = document.createElement("canvas");
+  canvas.width = W * scale;
+  canvas.height = H * scale;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+  const font = (weight, size) => `${weight} ${size}px system-ui, -apple-system, "Segoe UI", Arial, sans-serif`;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#284f63";
+  ctx.fillRect(0, 0, W, 14);
+
+  let y = 82;
+  ctx.fillStyle = "#1f2933";
+  ctx.font = font(700, 30);
+  ctx.fillText(r.apartment, pad, y, W - pad * 2);
+  y += 30;
+  ctx.fillStyle = "#5f6f7a";
+  ctx.font = font(600, 14);
+  ctx.fillText("OFFICIAL PAYMENT RECEIPT", pad, y);
+  y += 20;
+  ctx.strokeStyle = "#d8e1e6";
+  ctx.lineWidth = 1;
+  const rule = () => { ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke(); };
+  rule();
+  y += 40;
+
+  const row = (label, value) => {
+    ctx.fillStyle = "#5f6f7a";
+    ctx.font = font(500, 17);
+    ctx.textAlign = "left";
+    ctx.fillText(label, pad, y);
+    ctx.fillStyle = "#1f2933";
+    ctx.font = font(600, 17);
+    ctx.textAlign = "right";
+    ctx.fillText(value, W - pad, y, W - pad * 2 - 170);
+    ctx.textAlign = "left";
+    y += 44;
+  };
+  row("Receipt No.", r.number);
+  row("Date Paid", receiptDateLabel(r.paidAt));
+  row("Received From", r.resident);
+  if (r.room) row("Room", r.room);
+  row("Payment For", r.title);
+  row("Period", r.periodLabel);
+  y -= 14;
+  rule();
+  y += 40;
+  r.lines.forEach((l) => row(l.label, money(l.amount)));
+  y -= 14;
+  rule();
+  y += 44;
+  ctx.fillStyle = "#1f2933";
+  ctx.font = font(700, 20);
+  ctx.fillText("Total Paid", pad, y);
+  ctx.fillStyle = "#2f6b4f";
+  ctx.font = font(800, 30);
+  ctx.textAlign = "right";
+  ctx.fillText(money(r.total), W - pad, y);
+  ctx.textAlign = "left";
+  y += 64;
+
+  ctx.save();
+  ctx.translate(pad + 70, y);
+  ctx.rotate(-0.1);
+  ctx.strokeStyle = "#2f6b4f";
+  ctx.fillStyle = "#2f6b4f";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(-56, -30, 112, 52);
+  ctx.font = font(800, 28);
+  ctx.textAlign = "center";
+  ctx.fillText("PAID", 0, 8);
+  ctx.restore();
+  ctx.textAlign = "left";
+
+  ctx.fillStyle = "#5f6f7a";
+  ctx.font = font(500, 15);
+  ctx.fillText(`Received by ${r.receivedBy}. Thank you!`, pad, H - 44);
+  return canvas;
+}
+
+function receiptFileName(r) {
+  const who = r.resident.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "resident";
+  return `receipt-${r.number}-${who}`;
+}
+
+function receiptBlob(r) {
+  return new Promise((resolve) => receiptCanvas(r).toBlob(resolve, "image/png"));
+}
+
+async function downloadReceiptImage() {
+  if (!activeReceipt) return;
+  const blob = await receiptBlob(activeReceipt);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${receiptFileName(activeReceipt)}.png`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+async function copyReceiptText() {
+  if (!activeReceipt) return;
+  try {
+    await navigator.clipboard.writeText(receiptText(activeReceipt));
+    showNotice("Receipt text copied. Paste it into Messenger, SMS, or email.", false);
+  } catch {
+    showNotice("Copy was blocked by the browser. Use Save Image or Print instead.", false);
+  }
+}
+
+async function shareReceipt() {
+  if (!activeReceipt) return;
+  const r = activeReceipt;
+  try {
+    const blob = await receiptBlob(r);
+    const file = new File([blob], `${receiptFileName(r)}.png`, { type: "image/png" });
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file], title: `Receipt ${r.number}`, text: `Payment receipt for ${r.resident}` });
+    } else if (navigator.share) {
+      await navigator.share({ title: `Receipt ${r.number}`, text: receiptText(r) });
+    } else {
+      await copyReceiptText();
+    }
+  } catch (error) {
+    if (error?.name !== "AbortError") await copyReceiptText();
+  }
+}
+
+function printReceipt() {
+  if (!activeReceipt) return;
+  document.body.classList.add("printing-receipt");
+  window.print();
+}
+
+function bindReceiptEvents() {
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".receipt-btn");
+    if (btn) openReceipt(btn.dataset.kind, btn.dataset.id);
+  });
+  $("closeReceiptModal").addEventListener("click", closeReceipt);
+  $("receiptModal").addEventListener("click", (e) => {
+    if (e.target.id === "receiptModal") closeReceipt();
+  });
+  $("receiptPrintBtn").addEventListener("click", printReceipt);
+  $("receiptImageBtn").addEventListener("click", downloadReceiptImage);
+  $("receiptShareBtn").addEventListener("click", shareReceipt);
+  $("receiptCopyBtn").addEventListener("click", copyReceiptText);
+  window.addEventListener("afterprint", () => document.body.classList.remove("printing-receipt"));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("receiptModal").hidden) closeReceipt();
+  });
+}
+
 function bindEvents() {
+  bindReceiptEvents();
   $("transactionDate").value = todayISO();
   $("electricityDate").value = todayISO();
   $("waterDate").value = todayISO();
@@ -2077,9 +2358,13 @@ function bindEvents() {
       return;
     }
     const member = state.members.find((m) => m.id === e.target.dataset.id);
-    if (member) member.paid = e.target.checked;
+    if (member) {
+      member.paid = e.target.checked;
+      member.paidAt = member.paid ? todayISO() : "";
+    }
     render();
     scheduleSave();
+    if (member?.paid) openReceipt("amotan", member.id);
   });
 
   $("membersList").addEventListener("click", async (e) => {
@@ -2495,9 +2780,12 @@ function bindEvents() {
         e.target.checked = !e.target.checked;
         return;
       }
-      updateBillPaidStatus(key, e.target.dataset.id, e.target.checked);
+      const paidId = e.target.dataset.id;
+      const nowPaid = e.target.checked;
+      updateBillPaidStatus(key, paidId, nowPaid);
       render();
       scheduleSave();
+      if (nowPaid) openReceipt(key, paidId);
     });
 
     unpaidList.addEventListener("click", (e) => {
@@ -2507,6 +2795,7 @@ function bindEvents() {
       updateBillPaidStatus(key, btn.dataset.id, true);
       render();
       scheduleSave();
+      openReceipt(key, btn.dataset.id);
     });
   }
 }
@@ -2579,6 +2868,7 @@ function renderBillInputs() {
                 <input type="checkbox" class="${key}-paid" data-id="${row.id}" ${row.paid ? "checked" : ""} />
                 <span>${row.paid ? "Paid" : "Unpaid"}</span>
               </label>
+              ${row.paid ? `<button class="mini receipt-btn" data-kind="${key}" data-id="${row.id}" type="button">Receipt</button>` : ""}
             </td>
           </tr>
         `).join("")
@@ -2589,7 +2879,7 @@ function renderBillInputs() {
     const unpaidList = $(`${key}UnpaidList`);
     if (paidList) {
       paidList.innerHTML = summary.paidMembers.length
-        ? summary.paidMembers.map((member) => `<li class="paid-item">${escapeHTML(member.name)} <span>${money(summary.rows.find((row) => row.id === member.id)?.totalDue || 0)}</span></li>`).join("")
+        ? summary.paidMembers.map((member) => `<li class="paid-item">${escapeHTML(member.name)} <span>${money(summary.rows.find((row) => row.id === member.id)?.totalDue || 0)}</span> <button class="mini receipt-btn" data-kind="${key}" data-id="${member.id}" type="button">Receipt</button></li>`).join("")
         : `<li class="empty-row">No paid members yet.</li>`;
     }
     if (unpaidList) {

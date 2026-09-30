@@ -3191,3 +3191,64 @@ textarea { min-height: 96px; }
   .topbar-actions > .unlock-box,
   .topbar-actions > #lockBtn { grid-column: 1 / -1; }
 }
+
+
+/* ---------- Receipts ---------- */
+.receipt-modal { max-width: 460px; }
+.receipt-paper {
+  position: relative;
+  margin: 8px 0 14px;
+  padding: 22px 20px 18px;
+  background: #ffffff;
+  color: #1f2933;
+  border: 1px solid #d8e1e6;
+  border-top: 6px solid #284f63;
+  border-radius: 8px;
+}
+.receipt-head { display: grid; gap: 2px; padding-bottom: 12px; margin-bottom: 8px; border-bottom: 1px solid #d8e1e6; }
+.receipt-head strong { font-size: 1.2rem; }
+.receipt-head span { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: #5f6f7a; font-weight: 700; }
+.receipt-row { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; font-size: 0.92rem; }
+.receipt-row span { color: #5f6f7a; }
+.receipt-row strong { text-align: right; overflow-wrap: anywhere; }
+.receipt-lines { margin: 8px 0; padding: 6px 0; border-top: 1px dashed #b9c7cf; border-bottom: 1px dashed #b9c7cf; }
+.receipt-total { display: flex; justify-content: space-between; align-items: baseline; padding-top: 6px; }
+.receipt-total span { font-weight: 700; }
+.receipt-total strong { font-size: 1.5rem; color: #2f6b4f; }
+.receipt-stamp {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 2px 14px;
+  border: 3px solid #2f6b4f;
+  color: #2f6b4f;
+  font-weight: 800;
+  font-size: 1.2rem;
+  letter-spacing: 0.06em;
+  transform: rotate(-6deg);
+  border-radius: 4px;
+}
+.receipt-foot { margin: 14px 0 0; font-size: 0.82rem; color: #5f6f7a; }
+.receipt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.receipt-actions button { flex: 1 1 120px; }
+.receipt-btn { margin-left: 6px; }
+
+@media print {
+  body.printing-receipt > *:not(#receiptModal) { display: none !important; }
+  body.printing-receipt #receiptModal {
+    display: block !important;
+    position: static !important;
+    background: none !important;
+    padding: 0 !important;
+  }
+  body.printing-receipt .receipt-modal {
+    max-width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    background: #fff !important;
+  }
+  body.printing-receipt .profile-modal-head,
+  body.printing-receipt .receipt-actions { display: none !important; }
+  body.printing-receipt .receipt-paper { max-width: 420px; margin: 0 auto; }
+}

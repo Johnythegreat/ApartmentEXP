@@ -1,4 +1,4 @@
-const CACHE = 'amotan-pro-v5-authoritative-revision';
+const CACHE = 'amotan-pro-v6-receipts';
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icon.svg'];
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
