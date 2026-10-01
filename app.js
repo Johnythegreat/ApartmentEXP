@@ -477,6 +477,15 @@ function setMobileNav(open) {
   if ($("mobileMenuBtn")) $("mobileMenuBtn").setAttribute("aria-expanded", String(open));
 }
 
+function setAccountMenu(open) {
+  const menu = $("topbarActions");
+  const button = $("topbarMenuBtn");
+  if (!menu || !button) return;
+  menu.classList.toggle("is-open", open);
+  button.setAttribute("aria-expanded", String(open));
+  button.setAttribute("aria-label", open ? "Close account menu" : "Open account menu");
+}
+
 function focusableElements(container) {
   return [...container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
     .filter((el) => !el.disabled && el.offsetParent !== null);
@@ -1424,6 +1433,7 @@ async function unlockAdmin() {
     setEditState();
     renderAnnouncements();
     showNotice("Admin signed in. Loading the shared tracker…", false);
+    setAccountMenu(false);
     await initFirebase();
   } catch (error) {
     console.error("Admin sign-in failed:", error);
@@ -2193,6 +2203,16 @@ function bindEvents() {
 
   $("themeToggle")?.addEventListener("click", toggleTheme);
   $("mobileMenuBtn")?.addEventListener("click", () => setMobileNav(!document.body.classList.contains("nav-open")));
+  $("topbarMenuBtn")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setAccountMenu(!$("topbarActions").classList.contains("is-open"));
+  });
+  document.addEventListener("click", (event) => {
+    const menu = $("topbarActions");
+    if (menu?.classList.contains("is-open") && !menu.contains(event.target) && !$("topbarMenuBtn").contains(event.target)) {
+      setAccountMenu(false);
+    }
+  });
   $("mobileNavOverlay")?.addEventListener("click", () => setMobileNav(false));
   $("collapseNavBtn")?.addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed")));
   $("passwordToggle")?.addEventListener("click", () => {
@@ -2214,6 +2234,7 @@ function bindEvents() {
       if (!$("profileModal")?.hidden) closeProfileModal();
       if (!$("announcementPreviewModal")?.hidden) $("announcementPreviewModal").hidden = true;
       if (document.body.classList.contains("nav-open")) setMobileNav(false);
+      setAccountMenu(false);
     }
     if (e.key !== "Tab" || $("confirmModal")?.hidden) return;
     const focusables = focusableElements($("confirmModal"));
