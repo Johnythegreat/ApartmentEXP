@@ -244,6 +244,12 @@ let publicDocRef = null;
 let publicUnsubscribe = null;
 let saveTimer = null;
 let applyingRemote = false;
+let saveInFlight = false;      // a cloud write is currently running
+let saveQueued = false;        // another save was requested while one was running
+let localDirty = false;        // local edits exist that the cloud has not confirmed yet
+let ownRevisionInFlight = null; // revision our own write is about to produce (to ignore its echo)
+let cloudUnsubscribe = null;   // so the realtime listener is never attached twice
+const unsyncedKey = () => `${LOCAL_KEY}-unsynced`;
 let activeProfileMemberId = null;
 let editingProfileMemberId = null;
 let activeView = "home";
@@ -1459,6 +1465,8 @@ async function createWorkspaceAccount(event) {
 }
 
 function scheduleSave() {
+  localDirty = true;
+  try { localStorage.setItem(unsyncedKey(), "1"); } catch { /* storage full: local save will warn */ }
   saveLocal();
   try {
     runAutoBackupIfDue();
@@ -1471,34 +1479,61 @@ function scheduleSave() {
 
 async function saveCloudNow() {
   saveLocal();
-  if (OFFLINE_MODE || !docRef || applyingRemote) return;
+  if (OFFLINE_MODE || !docRef || applyingRemote || cloudConflict) return;
+  // Only one cloud write at a time. Two overlapping writes used to compare against the
+  // same old revision, so the second one was rejected as a "conflict" and that edit was lost.
+  if (saveInFlight) {
+    saveQueued = true;
+    return;
+  }
+  saveInFlight = true;
+  saveQueued = false;
+  localDirty = false; // any edit made while this write runs marks it dirty again
   try {
     const expectedRevision = cloudRevision;
     const payload = normalizeState(state);
     logFirestore("write transaction", `expected revision ${expectedRevision}`);
     const nextRevision = await runTransaction(docRef.firestore, async (transaction) => {
+      ownRevisionInFlight = null;
       const snapshot = await transaction.get(docRef);
       const remoteRevision = Number(snapshot.data()?.revision || 0);
       if (remoteRevision !== expectedRevision) throw new Error("SYNC_CONFLICT");
       const revision = remoteRevision + 1;
+      ownRevisionInFlight = revision;
       transaction.set(docRef, { ...payload, revision, updatedAt: serverTimestamp() });
       return revision;
     });
-    cloudRevision = nextRevision;
-    await setDoc(doc(docRef.firestore, "publicApartmentViews", WORKSPACE_ID), publicStatePayload());
+    cloudRevision = Math.max(cloudRevision, nextRevision);
+    ownRevisionInFlight = null;
+    try {
+      await setDoc(doc(docRef.firestore, "publicApartmentViews", WORKSPACE_ID), publicStatePayload());
+    } catch (publicError) {
+      console.warn("Public view could not be refreshed:", publicError);
+    }
+    if (!localDirty) {
+      try { localStorage.removeItem(unsyncedKey()); } catch { /* ignore */ }
+    }
     setStatus("Synced online", "online");
     showNotice("", true);
   } catch (error) {
+    ownRevisionInFlight = null;
+    localDirty = true; // the cloud does not have these edits yet
     console.error("Cloud save failed:", error);
     if (error.message === "SYNC_CONFLICT") {
       cloudConflict = true;
       saveRecoverySnapshot("Cloud conflict: unsynced local version");
       setStatus("Sync conflict", "local");
       showNotice("Another device changed the tracker. Your version was saved in browser recovery snapshots and was not allowed to overwrite newer cloud data. Refresh to load the latest cloud copy.", false);
-      return;
+    } else {
+      setStatus("Local only", "local");
+      showNotice("Saved locally. Firestore is offline or blocked. Your changes will sync when the connection returns.", false);
     }
-    setStatus("Local only", "local");
-    showNotice("Saved locally. Firestore is offline or blocked.", false);
+  } finally {
+    saveInFlight = false;
+    if (saveQueued && !cloudConflict) {
+      saveQueued = false;
+      saveCloudNow();
+    }
   }
 }
 
@@ -3283,14 +3318,22 @@ async function initFirebase() {
     publicUnsubscribe = null;
     docRef = doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID);
 
+    let recoveredUnsynced = false;
     logFirestore("read getDoc");
     // Conflict checks must start from the authoritative cloud revision, not a
     // potentially stale IndexedDB snapshot left by an earlier browser session.
     const snap = await getDocFromServer(docRef);
     if (snap.exists()) {
       console.info(`[Firestore] loaded snapshot from ${FIRESTORE_DOC_PATH}`);
+      if (localStorage.getItem(unsyncedKey())) {
+        // The last session ended with edits the cloud never confirmed. Keep a copy before the cloud version replaces them.
+        saveRecoverySnapshot("Unsynced local edits replaced by cloud copy", loadLocal());
+        localStorage.removeItem(unsyncedKey());
+        recoveredUnsynced = true;
+      }
       state = normalizeState(snap.data());
       cloudRevision = Number(snap.data().revision || 0);
+      localDirty = false;
     } else {
       const localState = loadLocal();
       let legacyState = null;
@@ -3317,19 +3360,47 @@ async function initFirebase() {
     setStatus("Synced online", "online");
     showNotice("", true);
 
-    onSnapshot(docRef, (snapshot) => {
+    if (recoveredUnsynced) {
+      showNotice("Some edits from your last session never reached the cloud. They were kept in browser recovery snapshots, and the latest cloud copy is shown.", false);
+    }
+
+    cloudUnsubscribe?.(); // never keep two listeners alive after a re-login
+    cloudUnsubscribe = onSnapshot(docRef, (snapshot) => {
       if (!snapshot.exists()) return;
-      if (snapshot.metadata.hasPendingWrites) return;
+      // Cached or locally pending snapshots can be older than the server copy; applying them reverted data.
+      if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
+      const data = snapshot.data();
+      const remoteRevision = Number(data.revision || 0);
+      // The echo of our own write, or an older copy: nothing to apply.
+      if (ownRevisionInFlight !== null && remoteRevision === ownRevisionInFlight) {
+        cloudRevision = Math.max(cloudRevision, remoteRevision);
+        return;
+      }
+      if (remoteRevision <= cloudRevision) return;
+      // A write of ours is running: its own result decides whether this is a conflict.
+      if (saveInFlight) return;
+      // Never overwrite edits that have not been saved yet.
+      if (localDirty) {
+        cloudConflict = true;
+        saveRecoverySnapshot("Cloud changed while local edits were unsaved");
+        setStatus("Sync conflict", "local");
+        showNotice("Another device changed the tracker while you had unsaved edits. Your version was kept in browser recovery snapshots. Refresh to load the latest cloud copy.", false);
+        return;
+      }
       applyingRemote = true;
-      logFirestore("listener snapshot", `exists=${snapshot.exists()}`);
-      state = normalizeState(snapshot.data());
-      cloudRevision = Number(snapshot.data().revision || 0);
-      cloudConflict = false;
-      saveLocal();
-      checkAutoCycle();
-      render();
-      applyingRemote = false;
-      setStatus("Synced online", "online");
+      try {
+        logFirestore("listener snapshot", `revision ${remoteRevision}`);
+        state = normalizeState(data);
+        cloudRevision = remoteRevision;
+        cloudConflict = false;
+        saveLocal();
+        try { localStorage.removeItem(unsyncedKey()); } catch { /* ignore */ }
+        checkAutoCycle();
+        render();
+        setStatus("Synced online", "online");
+      } finally {
+        applyingRemote = false; // always released, even if render() throws
+      }
     }, (error) => {
       console.error("Realtime listener failed:", error);
       setStatus("Local only", "local");
