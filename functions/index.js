@@ -96,15 +96,24 @@ exports.createWorkspaceAccount = onCall(async (request) => {
   try {
     user = await admin.auth().createUser({ email, password, emailVerified: false });
     await admin.auth().setCustomUserClaims(user.uid, { workspaceId: slug, workspaceAdmin: true });
+    const cycleStarted = new Date().toISOString().slice(0, 10);
     await workspaceRef.create({
       members: [], announcements: [], income: [], expenses: [], rooms: [],
       bills: {}, carryover: 0,
-      cycleStarted: new Date().toISOString().slice(0, 10),
+      cycleStarted,
       settings: { apartmentName: name, autoBackup: { enabled: false, frequency: "weekly", lastRun: null } },
       revision: 1,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       createdBy: request.auth.uid
+    });
+    await database.collection("publicApartmentViews").doc(slug).set({
+      workspaceId: slug,
+      members: [], announcements: [], income: [], expenses: [], rooms: [],
+      bills: {}, carryover: 0,
+      cycleStarted,
+      settings: { apartmentName: name },
+      publishedAt: admin.firestore.FieldValue.serverTimestamp()
     });
   } catch (error) {
     if (user?.uid) await admin.auth().deleteUser(user.uid).catch(() => {});
@@ -114,6 +123,32 @@ exports.createWorkspaceAccount = onCall(async (request) => {
     throw new HttpsError("internal", "The workspace could not be created.");
   }
   return { workspaceId: slug, email };
+});
+
+exports.listWorkspaces = onCall(async (request) => {
+  if (!request.auth || request.auth.token.admin !== true) {
+    throw new HttpsError("permission-denied", "Only the platform administrator can list all workspaces.");
+  }
+  try {
+    const snapshot = await database.collection("apartments").get();
+    return {
+      workspaces: snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.settings?.apartmentName || doc.id,
+          memberCount: Array.isArray(data.members) ? data.members.length : 0,
+          transactionCount: (Array.isArray(data.income) ? data.income.length : 0) + (Array.isArray(data.expenses) ? data.expenses.length : 0),
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : null,
+          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : null,
+          revision: Number(data.revision || 1)
+        };
+      })
+    };
+  } catch (error) {
+    console.error("Failed to list workspaces:", error);
+    throw new HttpsError("internal", "Could not list workspaces.");
+  }
 });
 
 exports.publishScheduledAnnouncements = onSchedule("every 5 minutes", async () => {

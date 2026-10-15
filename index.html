@@ -14,7 +14,7 @@
       document.documentElement.dataset.theme = saved || (prefersDark ? "dark" : "light");
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=10" />
+  <link rel="stylesheet" href="styles.css" />
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
 </head>
 <body class="is-loading">
@@ -35,7 +35,8 @@
       </button>
       <div id="topbarActions" class="topbar-actions">
         <span id="syncStatus" class="status local">Starting...</span>
-        <span id="workspaceLabel" class="pill">Workspace: main</span>
+        <button id="workspaceLabel" class="pill workspace-pill-btn" type="button" aria-label="Switch or view workspace">Workspace: main</button>
+        <button id="openSignInModalBtn" class="secondary-btn topbar-sign-in-btn" type="button"><i data-lucide="log-in" aria-hidden="true"></i><span>Admin Sign In</span></button>
         <button id="themeToggle" class="icon-btn" type="button" aria-label="Switch theme">
           <i data-lucide="moon" aria-hidden="true"></i>
         </button>
@@ -72,9 +73,32 @@
       <button class="nav-tab" type="button" data-view="reports"><i data-lucide="bar-chart-3" aria-hidden="true"></i><span>Reports</span></button>
       <button class="nav-tab" type="button" data-view="expenses"><i data-lucide="receipt-text" aria-hidden="true"></i><span>Finance</span></button>
       <button class="nav-tab nav-secondary" type="button" data-view="backup"><i data-lucide="settings" aria-hidden="true"></i><span>Settings</span></button>
+      <div class="nav-drawer-footer">
+        <div id="navAccountBlock" class="nav-account-block">
+          <div class="nav-account-info">
+            <span class="nav-account-eyebrow">Workspace</span>
+            <strong id="navWorkspaceBadge">main</strong>
+            <span id="navAuthBadge" class="nav-auth-badge">Public Visitor</span>
+          </div>
+          <button id="navSignInBtn" class="primary-btn nav-action-btn" type="button">
+            <i data-lucide="log-in" aria-hidden="true"></i> Admin Sign In
+          </button>
+          <button id="navSignOutBtn" class="secondary-btn nav-action-btn" type="button" hidden>
+            <i data-lucide="log-out" aria-hidden="true"></i> Sign Out
+          </button>
+        </div>
+      </div>
     </nav>
 
     <section id="homeView" class="app-view active" data-view-panel="home">
+    <div id="publicTransparencyBanner" class="transparency-banner" hidden>
+      <div class="transparency-banner-icon"><i data-lucide="eye" aria-hidden="true"></i></div>
+      <div class="transparency-banner-body">
+        <strong>Public Financial Transparency Mode</strong>
+        <p>You are viewing real-time financial and utility records for <span id="transparencyApartmentName">this apartment</span>. All records are verified by the apartment administrator.</p>
+      </div>
+      <button id="bannerSignInLink" class="secondary-btn mini" type="button">Admin Sign In</button>
+    </div>
     <section class="welcome-panel">
       <div>
         <p class="eyebrow">Today</p>
@@ -162,7 +186,7 @@
           <span id="editState" class="pill">Locked</span>
         </div>
 
-        <details class="inline-disclosure">
+        <details id="addMemberDisclosure" class="inline-disclosure admin-only">
           <summary><i data-lucide="user-plus" aria-hidden="true"></i> Add resident</summary>
         <form id="memberForm" class="member-form">
           <div class="member-form-primary">
@@ -207,7 +231,7 @@
           </div>
         </div>
 
-        <details class="inline-disclosure">
+        <details id="addTransactionDisclosure" class="inline-disclosure admin-only">
           <summary><i data-lucide="circle-plus" aria-hidden="true"></i> Add transaction</summary>
         <form id="transactionForm" class="transaction-form">
           <div class="segmented" role="radiogroup" aria-label="Transaction type">
@@ -238,8 +262,19 @@
 
         <div class="panel-heading compact">
           <div>
-            <h2>Recent</h2>
+            <h2>Recent Activity</h2>
             <p id="activityTotals">No entries yet.</p>
+          </div>
+        </div>
+        <div class="activity-filter-bar">
+          <div class="activity-search-box">
+            <i data-lucide="search" aria-hidden="true"></i>
+            <input id="activitySearchInput" type="text" placeholder="Search activity..." autocomplete="off" />
+          </div>
+          <div class="segmented segmented-compact" role="radiogroup" aria-label="Filter activity type">
+            <label><input id="activityFilterAll" type="radio" name="activityTypeFilter" value="all" checked /><span>All</span></label>
+            <label><input id="activityFilterIncome" type="radio" name="activityTypeFilter" value="income" /><span>Money In</span></label>
+            <label><input id="activityFilterExpense" type="radio" name="activityTypeFilter" value="expense" /><span>Expenses</span></label>
           </div>
         </div>
         <div id="transactionsList" class="transactions-list"></div>
@@ -365,7 +400,7 @@
           <p>Carry the remaining balance into the next cycle.</p>
         </div>
       </div>
-      <div class="admin-actions">
+      <div id="cycleAdminTools" class="admin-actions admin-only">
         <button id="manualResetBtn" class="warn-btn" type="button">End Cycle</button>
         <button id="clearActivityBtn" class="secondary-btn" type="button">Clear Activity</button>
         <button id="clearAllBtn" class="danger-btn" type="button">Clear Everything</button>
@@ -592,7 +627,14 @@
     </section>
 
     <section id="expensesView" class="app-view" data-view-panel="expenses" hidden>
-      <section class="panel">
+      <div id="expensePublicNotice" class="public-notice-banner" hidden>
+        <div class="public-notice-icon"><i data-lucide="shield-check" aria-hidden="true"></i></div>
+        <div class="public-notice-text">
+          <strong>Public Financial Transparency Mode</strong>
+          <p>All recorded expenses, categories, and payment receipts are shown below. Adding and modifying expenses is restricted to authorized administrators.</p>
+        </div>
+      </div>
+      <section id="expenseFormPanel" class="panel admin-only">
         <div class="panel-heading">
           <div>
             <h2>Add Expense</h2>
@@ -651,6 +693,33 @@
 
     <section id="backupView" class="app-view" data-view-panel="backup" hidden>
       <section class="backup-grid">
+        <article id="workspaceSwitcherCard" class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Apartment Workspace</h2>
+              <p>Manage and share this apartment's dedicated workspace.</p>
+            </div>
+          </div>
+          <div class="backup-actions">
+            <button id="shareWorkspaceBtn" class="secondary-btn" type="button"><i data-lucide="copy" aria-hidden="true"></i> Copy Workspace Link</button>
+            <button id="shareTransparencyBtn" class="primary-btn" type="button"><i data-lucide="share-2" aria-hidden="true"></i> Share Public Transparency Link</button>
+          </div>
+        </article>
+        <article id="recoverySnapshotsManager" class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Recovery Snapshots &amp; Conflict Backups</h2>
+              <p>Automated restore points created during sync conflicts, cycle resets, or before cloud updates.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="refreshSnapshotsBtn" class="secondary-btn mini" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i> Refresh</button>
+              <button id="clearSnapshotsBtn" class="ghost-btn mini danger-text" type="button">Clear All</button>
+            </div>
+          </div>
+          <div id="recoverySnapshotsList" class="recovery-snapshots-list">
+            <p class="empty-row">No recovery snapshots stored.</p>
+          </div>
+        </article>
         <article id="workspaceManager" class="panel" hidden>
           <div class="panel-heading">
             <div>
@@ -759,7 +828,6 @@
         <button id="summaryShareBtn" class="primary-btn" type="button">Send / Share</button>
         <button id="summaryCopyBtn" class="secondary-btn" type="button">Copy</button>
       </div>
-      <small id="summaryVersion" class="summary-version"></small>
     </section>
   </div>
 
@@ -830,6 +898,187 @@
   </div>
 
 
+  <div id="signInModal" class="modal-backdrop" hidden>
+    <section class="profile-modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="signInModalTitle">
+      <div class="profile-modal-head">
+        <div>
+          <p class="eyebrow">Authentication</p>
+          <h2 id="signInModalTitle">Admin Sign In</h2>
+        </div>
+        <button id="closeSignInModal" class="icon-btn" type="button" aria-label="Close sign in dialog">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="modalSignInForm" class="auth-form" novalidate>
+        <div id="modalSignInError" class="auth-error-alert" hidden role="alert"></div>
+
+        <div class="auth-workspace-badge">
+          <i data-lucide="building" aria-hidden="true"></i>
+          <span>Workspace: <strong id="modalTargetWorkspace">main</strong></span>
+        </div>
+
+        <label class="field">
+          <span>Admin Email</span>
+          <div class="input-with-icon">
+            <i data-lucide="mail" aria-hidden="true"></i>
+            <input id="modalEmailInput" type="email" placeholder="admin@example.com" autocomplete="username" inputmode="email" autocapitalize="none" autocorrect="off" required />
+          </div>
+        </label>
+
+        <label class="field">
+          <span>Password</span>
+          <div class="input-with-icon">
+            <i data-lucide="lock" aria-hidden="true"></i>
+            <input id="modalPasswordInput" type="password" placeholder="Enter password" autocomplete="current-password" required />
+            <button id="modalPasswordToggle" class="icon-btn password-toggle-btn" type="button" aria-label="Show password">
+              <i data-lucide="eye" aria-hidden="true"></i>
+            </button>
+          </div>
+        </label>
+
+        <p class="helper-text auth-tip">Platform administrators can open all workspaces. Workspace administrators must use their assigned apartment link.</p>
+
+        <div class="form-actions auth-actions">
+          <button id="modalSignInCancel" class="secondary-btn" type="button">Cancel</button>
+          <button id="modalSignInSubmit" class="primary-btn" type="submit">
+            <span class="btn-text">Sign In</span>
+            <span class="btn-spinner" hidden><i data-lucide="loader-2" class="spin-icon" aria-hidden="true"></i> Signing in…</span>
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="conflictModal" class="modal-backdrop" hidden>
+    <section class="profile-modal conflict-modal" role="dialog" aria-modal="true" aria-labelledby="conflictModalTitle">
+      <div class="profile-modal-head">
+        <div>
+          <p class="eyebrow">Cloud Sync Alert</p>
+          <h2 id="conflictModalTitle">Sync Conflict Detected</h2>
+        </div>
+      </div>
+      <div class="conflict-content">
+        <p class="conflict-explanation">
+          Another device or browser session updated this apartment workspace while you had unsaved edits. To prevent accidental data loss, choose how you would like to proceed:
+        </p>
+
+        <div class="conflict-diff-grid">
+          <div class="conflict-card local-card">
+            <div class="conflict-card-header">
+              <span class="badge local-badge">Your Local Version</span>
+              <span id="conflictLocalTime" class="card-timestamp">Just now</span>
+            </div>
+            <ul id="conflictLocalStats" class="conflict-stats-list">
+              <li>0 residents</li>
+              <li>0 transactions</li>
+            </ul>
+          </div>
+          <div class="conflict-card remote-card">
+            <div class="conflict-card-header">
+              <span class="badge remote-badge">Cloud Version</span>
+              <span id="conflictRemoteRevision" class="card-timestamp">Revision 0</span>
+            </div>
+            <ul id="conflictRemoteStats" class="conflict-stats-list">
+              <li>0 residents</li>
+              <li>0 transactions</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="conflict-actions-list">
+          <button id="conflictMergeBtn" class="primary-btn conflict-action-btn" type="button">
+            <div class="btn-icon"><i data-lucide="git-merge" aria-hidden="true"></i></div>
+            <div class="btn-content">
+              <strong>Smart Merge (Recommended)</strong>
+              <span>Combines transactions, resident payments, and announcements from both versions without losing data.</span>
+            </div>
+          </button>
+
+          <button id="conflictKeepLocalBtn" class="warn-btn conflict-action-btn" type="button">
+            <div class="btn-icon"><i data-lucide="upload-cloud" aria-hidden="true"></i></div>
+            <div class="btn-content">
+              <strong>Keep My Local Changes</strong>
+              <span>Overwrites the cloud with your current version (cloud copy is kept in Recovery Snapshots).</span>
+            </div>
+          </button>
+
+          <button id="conflictUseCloudBtn" class="secondary-btn conflict-action-btn" type="button">
+            <div class="btn-icon"><i data-lucide="download-cloud" aria-hidden="true"></i></div>
+            <div class="btn-content">
+              <strong>Accept Cloud Version</strong>
+              <span>Discards local changes and loads the cloud version (your local edits are kept in Recovery Snapshots).</span>
+            </div>
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="workspaceSwitcherModal" class="modal-backdrop" hidden>
+    <section class="profile-modal workspace-modal" role="dialog" aria-modal="true" aria-labelledby="workspaceSwitcherTitle">
+      <div class="profile-modal-head">
+        <div>
+          <p class="eyebrow">Apartment Workspaces</p>
+          <h2 id="workspaceSwitcherTitle">Switch Workspace</h2>
+        </div>
+        <button id="closeWorkspaceSwitcher" class="icon-btn" type="button" aria-label="Close workspace switcher">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="workspace-switcher-body">
+        <div class="current-workspace-panel">
+          <div class="current-workspace-meta">
+            <span class="eyebrow">Active Workspace</span>
+            <h3 id="switcherActiveName">Apartment Tracker</h3>
+            <p class="workspace-link-code">Link slug: <code id="switcherActiveSlug">main</code></p>
+          </div>
+          <div class="workspace-actions-group">
+            <button id="copyWorkspaceShareBtn" class="primary-btn mini" type="button">
+              <i data-lucide="copy" aria-hidden="true"></i> Copy Workspace Link
+            </button>
+            <button id="copyPublicShareBtn" class="secondary-btn mini" type="button">
+              <i data-lucide="share-2" aria-hidden="true"></i> Copy Public Transparency Link
+            </button>
+          </div>
+          <div id="switcherCopyNotice" class="copy-toast" hidden>Link copied to clipboard!</div>
+        </div>
+
+        <form id="joinWorkspaceDirectForm" class="join-workspace-form">
+          <label class="field">
+            <span>Switch to apartment slug or link</span>
+            <div class="input-with-button">
+              <input id="joinWorkspaceInput" type="text" placeholder="e.g. sunrise-apartments or main" autocomplete="off" required />
+              <button class="primary-btn" type="submit">Switch</button>
+            </div>
+          </label>
+        </form>
+
+        <div id="platformAdminWorkspacesBox" class="workspace-directory-box" hidden>
+          <div class="panel-heading compact">
+            <div>
+              <h3>All Managed Apartments</h3>
+              <p>Platform Administrator Directory</p>
+            </div>
+            <button id="refreshAdminWorkspacesBtn" class="ghost-btn mini" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i> Refresh</button>
+          </div>
+          <div id="platformAdminWorkspacesList" class="workspace-directory-grid">
+            <p class="loading-state">Loading workspaces...</p>
+          </div>
+        </div>
+
+        <div id="recentWorkspacesBox" class="recent-workspaces-box">
+          <div class="panel-heading compact">
+            <div>
+              <h3>Recently Visited on this Device</h3>
+            </div>
+          </div>
+          <div id="recentWorkspacesList" class="recent-workspaces-chips">
+            <p class="empty-state">No other workspaces visited yet.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
   <div class="quick-actions" id="quickActions">
     <div class="quick-action-menu" id="quickActionMenu" hidden>
       <button type="button" data-quick-view="announcements"><i data-lucide="megaphone"></i> New announcement</button>
@@ -842,6 +1091,6 @@
     </button>
   </div>
 
-  <script type="module" src="app.js?v=10"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -4,6 +4,8 @@ import {
   doc,
   getDoc,
   getDocFromServer,
+  getDocs,
+  collection,
   setDoc,
   onSnapshot,
   enableIndexedDbPersistence,
@@ -28,7 +30,6 @@ const CYCLE_DAYS = 15;
 const ELECTRICITY_AC_CHARGE = 1350;
 const ELECTRICITY_AC_SHARE = 675;
 const params = new URLSearchParams(window.location.search);
-const APP_VERSION = "10";
 const OFFLINE_MODE = params.has("offline");
 const STORAGE_SCOPE = params.get("test");
 const requestedWorkspace = params.get("workspace") || "main";
@@ -254,6 +255,10 @@ let localDirty = false;        // local edits exist that the cloud has not confi
 let ownRevisionInFlight = null; // revision our own write is about to produce (to ignore its echo)
 let cloudUnsubscribe = null;   // so the realtime listener is never attached twice
 const unsyncedKey = () => `${LOCAL_KEY}-unsynced`;
+const RECENT_WORKSPACES_KEY = "apartment-recent-workspaces";
+let pendingConflict = null;
+let activityFilterType = "all";
+let activitySearchTerm = "";
 let activeProfileMemberId = null;
 let editingProfileMemberId = null;
 let activeView = "home";
@@ -357,10 +362,47 @@ function showNotice(text = "", hidden = true) {
 }
 
 function setEditState() {
-  $("editState").textContent = unlocked ? "Unlocked" : "Locked";
-  if ($("unlockBox")) $("unlockBox").hidden = unlocked;
-  if ($("summaryReportBtn")) $("summaryReportBtn").hidden = !unlocked;
-  if ($("lockBtn")) $("lockBtn").hidden = !unlocked;
+  const isUnlocked = Boolean(unlocked);
+  document.body.classList.toggle("is-locked", !isUnlocked);
+
+  $("editState").textContent = isUnlocked ? "Unlocked" : "Locked";
+  if ($("unlockBox")) $("unlockBox").hidden = isUnlocked;
+  if ($("openSignInModalBtn")) $("openSignInModalBtn").hidden = isUnlocked;
+  if ($("summaryReportBtn")) $("summaryReportBtn").hidden = !isUnlocked;
+  if ($("lockBtn")) $("lockBtn").hidden = !isUnlocked;
+
+  // Mobile nav drawer account info
+  if ($("navAuthBadge")) {
+    $("navAuthBadge").textContent = isUnlocked ? (isPlatformAdmin ? "Platform Admin" : "Workspace Admin") : "Public Visitor";
+    $("navAuthBadge").classList.toggle("is-admin", isUnlocked);
+  }
+  if ($("navWorkspaceBadge")) $("navWorkspaceBadge").textContent = WORKSPACE_ID;
+  if ($("navSignInBtn")) $("navSignInBtn").hidden = isUnlocked;
+  if ($("navSignOutBtn")) $("navSignOutBtn").hidden = !isUnlocked;
+
+  // Public Transparency Banner on Dashboard
+  if ($("publicTransparencyBanner")) {
+    $("publicTransparencyBanner").hidden = isUnlocked;
+    if ($("transparencyApartmentName")) {
+      $("transparencyApartmentName").textContent = state.settings?.apartmentName || "this apartment";
+    }
+  }
+
+  // Finance view public transparency notice
+  if ($("expensePublicNotice")) $("expensePublicNotice").hidden = isUnlocked;
+
+  // Admin-only panels, quick actions, and disclosures
+  if ($("addTransactionDisclosure")) $("addTransactionDisclosure").hidden = !isUnlocked;
+  if ($("addMemberDisclosure")) $("addMemberDisclosure").hidden = !isUnlocked;
+  if ($("cycleAdminTools")) $("cycleAdminTools").hidden = !isUnlocked;
+  if ($("expenseFormPanel")) $("expenseFormPanel").hidden = !isUnlocked;
+  if ($("quickActions")) $("quickActions").hidden = !isUnlocked;
+  if ($("restoreFile")) $("restoreFile").disabled = !isUnlocked;
+  if ($("autoBackupEnabled")) $("autoBackupEnabled").disabled = !isUnlocked;
+  if ($("autoBackupFrequency")) $("autoBackupFrequency").disabled = !isUnlocked;
+  if ($("downloadBeforeDelete")) $("downloadBeforeDelete").disabled = !isUnlocked;
+  if ($("deleteConfirmInput")) $("deleteConfirmInput").disabled = !isUnlocked;
+
   if ($("workspaceLabel")) {
     const workspaceName = state.settings?.apartmentName || "Apartment Tracker";
     $("workspaceLabel").textContent = `Workspace: ${workspaceName} (${WORKSPACE_ID})`;
@@ -370,24 +412,45 @@ function setEditState() {
 }
 
 function publicStatePayload() {
-  const cleanMember = (member) => ({ id: member.id, name: profileName(member), paid: Boolean(member.paid) });
-  const cleanTransaction = (item) => ({
-    id: item.id, date: item.date, amount: Number(item.amount || 0),
+  const cleanMember = (member) => ({
+    id: member.id,
+    name: profileName(member),
+    paid: Boolean(member.paid),
+    paidAt: member.paidAt || ""
+  });
+  const cleanIncome = (item) => ({
+    id: item.id,
+    date: item.date,
+    amount: Number(item.amount || 0),
+    description: String(item.description || "")
+  });
+  const cleanExpense = (item) => ({
+    id: item.id,
+    date: item.date,
+    amount: Number(item.amount || 0),
     description: String(item.description || ""),
-    ...(item.category ? { category: item.category } : {})
+    category: item.category || "Miscellaneous",
+    paidBy: String(item.paidBy || ""),
+    paymentMethod: String(item.paymentMethod || ""),
+    receiptNumber: String(item.receiptNumber || ""),
+    notes: String(item.notes || "")
   });
   const cleanBill = (bill) => ({
-    id: bill.id, name: bill.name, amount: Number(bill.amount || 0), date: bill.date,
+    id: bill.id,
+    name: bill.name,
+    amount: Number(bill.amount || 0),
+    date: bill.date,
     members: Array.isArray(bill.members) ? bill.members : [],
     paidMembers: Array.isArray(bill.paidMembers) ? bill.paidMembers : [],
+    paidDates: bill.paidDates && typeof bill.paidDates === "object" ? bill.paidDates : {},
     airconMembers: Array.isArray(bill.airconMembers) ? bill.airconMembers : []
   });
   return {
     workspaceId: WORKSPACE_ID,
     members: state.members.map(cleanMember),
     announcements: state.announcements.filter(announcementIsPublic),
-    income: state.income.map(cleanTransaction),
-    expenses: state.expenses.map(cleanTransaction),
+    income: state.income.map(cleanIncome),
+    expenses: state.expenses.map(cleanExpense),
     bills: { electricity: cleanBill(state.bills.electricity), water: cleanBill(state.bills.water) },
     rooms: [],
     settings: { apartmentName: state.settings.apartmentName },
@@ -403,6 +466,7 @@ async function loadPublicWorkspace(db) {
   const snapshot = await getDoc(publicDocRef);
   if (snapshot.exists()) {
     state = normalizeState(snapshot.data());
+    recordRecentWorkspace(WORKSPACE_ID, state.settings?.apartmentName || WORKSPACE_ID);
     render();
     setStatus("Public view", "online");
     showNotice("Read-only transparency view. Sign in only if you are an apartment administrator.", false);
@@ -421,6 +485,478 @@ async function loadPublicWorkspace(db) {
     console.error("Public workspace listener failed:", error);
     setStatus("Public view unavailable", "local");
   });
+}
+
+
+// ==========================================================================
+// WORKSPACE RECENT TRACKING & NAVIGATION
+// ==========================================================================
+
+function getRecentWorkspaces() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_WORKSPACES_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function recordRecentWorkspace(slug, name) {
+  try {
+    if (!slug) return;
+    let recents = getRecentWorkspaces().filter((item) => item.slug !== slug);
+    recents.unshift({
+      slug,
+      name: name || slug,
+      lastVisited: new Date().toISOString()
+    });
+    localStorage.setItem(RECENT_WORKSPACES_KEY, JSON.stringify(recents.slice(0, 10)));
+  } catch (e) {
+    console.warn("Could not save recent workspace:", e);
+  }
+}
+
+function extractWorkspaceSlug(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  if (raw.includes("workspace=") || /^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw, window.location.origin);
+      const fromParam = parsed.searchParams.get("workspace");
+      if (fromParam) return workspaceSlug(fromParam);
+    } catch {
+      const match = raw.match(/[?&]workspace=([^&#]+)/i);
+      if (match) return workspaceSlug(decodeURIComponent(match[1]));
+    }
+  }
+  return workspaceSlug(raw);
+}
+
+function isValidWorkspaceSlug(slug) {
+  return slug === "main" || /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(slug);
+}
+
+function switchWorkspace(targetInput) {
+  const sanitized = extractWorkspaceSlug(targetInput);
+  if (!isValidWorkspaceSlug(sanitized)) {
+    showNotice("Use a valid 3–40 character workspace slug (lowercase letters, numbers, and hyphens) or 'main'.", false);
+    return;
+  }
+  if (sanitized === WORKSPACE_ID) {
+    closeWorkspaceSwitcher();
+    return;
+  }
+  if (unlocked || OFFLINE_MODE) {
+    saveLocal();
+  }
+  recordRecentWorkspace(WORKSPACE_ID, state.settings?.apartmentName || WORKSPACE_ID);
+  const existingRecent = getRecentWorkspaces().find((item) => item.slug === sanitized);
+  recordRecentWorkspace(sanitized, existingRecent?.name || sanitized);
+  const currentUrl = new URL(window.location.href);
+  currentUrl.searchParams.set("workspace", sanitized);
+  window.location.href = currentUrl.toString();
+}
+
+async function renderAdminWorkspacesList() {
+  const container = $("platformAdminWorkspacesList");
+  if (!container || !isPlatformAdmin) return;
+  try {
+    container.innerHTML = `<p class="loading-state">Loading workspaces...</p>`;
+    const app = getApps()[0];
+    if (!app) return;
+    const db = getFirestore(app);
+    const snap = await getDocs(collection(db, "apartments"));
+    if (snap.empty) {
+      container.innerHTML = `<p class="empty-state">No other apartment workspaces created yet.</p>`;
+      return;
+    }
+    const workspaces = snap.docs.map((d) => ({
+      id: d.id,
+      name: d.data().settings?.apartmentName || d.id,
+      memberCount: (d.data().members || []).length
+    }));
+    container.innerHTML = workspaces.map((w) => `
+      <div class="workspace-card-item">
+        <div>
+          <strong>${escapeHTML(w.name)}</strong>
+          <small>${escapeHTML(w.id)} • ${w.memberCount} resident${w.memberCount === 1 ? "" : "s"}</small>
+        </div>
+        <button class="secondary-btn mini switch-to-workspace-btn" data-slug="${escapeAttr(w.id)}" type="button" ${w.id === WORKSPACE_ID ? "disabled" : ""}>
+          ${w.id === WORKSPACE_ID ? "Current" : "Switch"}
+        </button>
+      </div>
+    `).join("");
+  } catch (error) {
+    console.warn("Could not load admin workspace directory:", error);
+    container.innerHTML = `<p class="empty-state">Could not load directory. Deploy multi-workspace rules or check connection.</p>`;
+  }
+}
+
+function renderWorkspaceSwitcher() {
+  if ($("switcherActiveName")) $("switcherActiveName").textContent = state.settings?.apartmentName || "Apartment Tracker";
+  if ($("switcherActiveSlug")) $("switcherActiveSlug").textContent = WORKSPACE_ID;
+
+  const recentList = $("recentWorkspacesList");
+  if (recentList) {
+    const recents = getRecentWorkspaces().filter((item) => item.slug !== WORKSPACE_ID);
+    if (!recents.length) {
+      recentList.innerHTML = `<p class="empty-state">No other workspaces visited on this device yet.</p>`;
+    } else {
+      recentList.innerHTML = recents.map((item) => `
+        <button class="recent-workspace-chip switch-to-workspace-btn" data-slug="${escapeAttr(item.slug)}" type="button">
+          <i data-lucide="building" aria-hidden="true"></i>
+          <span>${escapeHTML(item.name || item.slug)}</span>
+        </button>
+      `).join("");
+    }
+  }
+
+  if ($("platformAdminWorkspacesBox")) {
+    $("platformAdminWorkspacesBox").hidden = !isPlatformAdmin;
+    if (isPlatformAdmin) renderAdminWorkspacesList();
+  }
+
+  refreshIcons();
+}
+
+function openWorkspaceSwitcher() {
+  const modal = $("workspaceSwitcherModal");
+  if (!modal) return;
+  modal.hidden = false;
+  renderWorkspaceSwitcher();
+}
+
+function closeWorkspaceSwitcher() {
+  const modal = $("workspaceSwitcherModal");
+  if (modal) modal.hidden = true;
+  if ($("switcherCopyNotice")) $("switcherCopyNotice").hidden = true;
+}
+
+async function copyToClipboard(text, noticeEl) {
+  try {
+    await navigator.clipboard.writeText(text);
+    if (noticeEl) {
+      noticeEl.hidden = false;
+      setTimeout(() => { noticeEl.hidden = true; }, 2500);
+    } else {
+      showNotice("Link copied to clipboard!", false);
+    }
+  } catch {
+    showNotice("Could not copy link automatically. You can copy the URL from your browser address bar.", false);
+  }
+}
+
+// ==========================================================================
+// MOBILE & ACCESSIBLE AUTHENTICATION MODAL
+// ==========================================================================
+
+function openSignInModal() {
+  const modal = $("signInModal");
+  if (!modal) return;
+  modal.hidden = false;
+  if ($("modalSignInError")) {
+    $("modalSignInError").hidden = true;
+    $("modalSignInError").textContent = "";
+  }
+  if ($("modalTargetWorkspace")) $("modalTargetWorkspace").textContent = WORKSPACE_ID;
+  const lastEmail = localStorage.getItem("apartment-last-admin-email") || "";
+  if (lastEmail && $("modalEmailInput")) $("modalEmailInput").value = lastEmail;
+  if ($("modalEmailInput") && $("modalEmailInput").value) {
+    $("modalPasswordInput")?.focus();
+  } else {
+    $("modalEmailInput")?.focus();
+  }
+  refreshIcons();
+}
+
+function closeSignInModal() {
+  const modal = $("signInModal");
+  if (modal) modal.hidden = true;
+  if ($("modalPasswordInput")) $("modalPasswordInput").value = "";
+}
+
+async function handleModalSignIn(e) {
+  e.preventDefault();
+  const email = $("modalEmailInput").value.trim();
+  const password = $("modalPasswordInput").value;
+  const errorBox = $("modalSignInError");
+  const submitBtn = $("modalSignInSubmit");
+  const btnText = submitBtn?.querySelector(".btn-text");
+  const btnSpinner = submitBtn?.querySelector(".btn-spinner");
+
+  if (OFFLINE_MODE) {
+    if (errorBox) {
+      errorBox.textContent = "Admin editing is disabled in offline preview mode.";
+      errorBox.hidden = false;
+    }
+    return;
+  }
+  if (!email || !password) {
+    if (errorBox) {
+      errorBox.textContent = "Please enter both admin email and password.";
+      errorBox.hidden = false;
+    }
+    return;
+  }
+  if (!auth) {
+    if (errorBox) {
+      errorBox.textContent = "Firebase authentication is still initializing. Please try again in a moment.";
+      errorBox.hidden = false;
+    }
+    return;
+  }
+
+  try {
+    if (submitBtn) submitBtn.disabled = true;
+    if (btnText) btnText.hidden = true;
+    if (btnSpinner) btnSpinner.hidden = false;
+    if (errorBox) errorBox.hidden = true;
+
+    const credential = await signInWithEmailAndPassword(auth, email, password);
+    const token = await credential.user.getIdTokenResult(true);
+    const canAccessWorkspace = token.claims.admin === true || (token.claims.workspaceAdmin === true && token.claims.workspaceId === WORKSPACE_ID);
+
+    if (!canAccessWorkspace) {
+      await signOut(auth);
+      throw new Error(`This account cannot open workspace "${WORKSPACE_ID}". Use your assigned apartment link or sign in as platform admin.`);
+    }
+
+    localStorage.setItem("apartment-last-admin-email", email);
+    isPlatformAdmin = token.claims.admin === true;
+    unlocked = true;
+    closeSignInModal();
+    setEditState();
+    renderAnnouncements();
+    showNotice("Admin signed in. Loading shared tracker…", false);
+    setAccountMenu(false);
+    await initFirebase();
+  } catch (error) {
+    console.error("Sign in failed:", error);
+    if (errorBox) {
+      errorBox.textContent = error.message || "Admin sign-in failed. Please verify email and password.";
+      errorBox.hidden = false;
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+    if (btnText) btnText.hidden = false;
+    if (btnSpinner) btnSpinner.hidden = true;
+  }
+}
+
+// ==========================================================================
+// SMART CONFLICT RESOLUTION & RECOVERY
+// ==========================================================================
+
+function smartMergeStates(local, remote) {
+  const merged = normalizeState(remote);
+
+  // 1. Members (merge profile fields preferring non-empty values so blank defaults never wipe cloud PII)
+  const memberMap = new Map();
+  for (const m of (remote.members || [])) {
+    memberMap.set(m.id, { ...m });
+  }
+  for (const localMember of (local.members || [])) {
+    if (memberMap.has(localMember.id)) {
+      const existing = memberMap.get(localMember.id);
+      const mergedProfile = defaultProfile();
+      for (const field of PROFILE_FIELDS) {
+        mergedProfile[field.key] = localMember.profile?.[field.key] || existing.profile?.[field.key] || "";
+      }
+      mergedProfile.photo = localMember.profile?.photo || existing.profile?.photo || "";
+      memberMap.set(localMember.id, {
+        ...existing,
+        paid: Boolean(existing.paid || localMember.paid),
+        paidAt: localMember.paidAt || existing.paidAt || (existing.paid || localMember.paid ? todayISO() : ""),
+        name: (localMember.name && localMember.name !== "Unnamed Member") ? localMember.name : (existing.name || localMember.name),
+        profile: mergedProfile
+      });
+    } else {
+      memberMap.set(localMember.id, { ...localMember });
+    }
+  }
+  merged.members = Array.from(memberMap.values());
+
+  // 2. Income transactions (union by id, preferring local edits if modified)
+  const incomeMap = new Map();
+  for (const item of (remote.income || [])) incomeMap.set(item.id, item);
+  for (const item of (local.income || [])) {
+    incomeMap.set(item.id, item);
+  }
+  merged.income = Array.from(incomeMap.values()).sort((a, b) => `${b.date || ""}${b.id}`.localeCompare(`${a.date || ""}${a.id}`));
+
+  // 3. Expenses (union by id, preferring local edits if modified)
+  const expenseMap = new Map();
+  for (const item of (remote.expenses || [])) expenseMap.set(item.id, item);
+  for (const item of (local.expenses || [])) {
+    expenseMap.set(item.id, item);
+  }
+  merged.expenses = Array.from(expenseMap.values()).sort((a, b) => `${b.date || ""}${b.id}`.localeCompare(`${a.date || ""}${a.id}`));
+
+  // 3b. Rooms (union by id)
+  const roomMap = new Map();
+  for (const r of (remote.rooms || [])) roomMap.set(r.id, r);
+  for (const r of (local.rooms || [])) roomMap.set(r.id, r);
+  merged.rooms = Array.from(roomMap.values());
+
+  // 4. Announcements (union by id, prefer newest updatedAt)
+  const announcementMap = new Map();
+  for (const a of (remote.announcements || [])) announcementMap.set(a.id, a);
+  for (const a of (local.announcements || [])) {
+    if (!announcementMap.has(a.id)) {
+      announcementMap.set(a.id, a);
+    } else {
+      const remoteA = announcementMap.get(a.id);
+      if ((a.updatedAt || "") > (remoteA.updatedAt || "")) {
+        announcementMap.set(a.id, a);
+      }
+    }
+  }
+  merged.announcements = Array.from(announcementMap.values());
+
+  // 5. Utility bills
+  for (const key of ["electricity", "water"]) {
+    const localBill = local.bills?.[key] || defaultBill("", key);
+    const remoteBill = remote.bills?.[key] || defaultBill("", key);
+    const billMembers = Array.from(new Set([...(localBill.members || []), ...(remoteBill.members || [])]));
+    const paidMembers = Array.from(new Set([...(localBill.paidMembers || []), ...(remoteBill.paidMembers || [])]));
+    const paidDates = { ...(remoteBill.paidDates || {}), ...(localBill.paidDates || {}) };
+    const airconMembers = Array.from(new Set([...(localBill.airconMembers || []), ...(remoteBill.airconMembers || [])])).slice(0, 2);
+
+    merged.bills[key] = {
+      ...remoteBill,
+      amount: Math.max(Number(localBill.amount || 0), Number(remoteBill.amount || 0)),
+      date: localBill.date && localBill.date > (remoteBill.date || "") ? localBill.date : remoteBill.date || todayISO(),
+      members: billMembers,
+      paidMembers: paidMembers.filter((id) => billMembers.includes(id)),
+      paidDates,
+      airconMembers
+    };
+  }
+
+  // 6. Settings
+  merged.settings = {
+    ...normalizeSettings(remote.settings),
+    apartmentName: local.settings?.apartmentName || remote.settings?.apartmentName || "Apartment Tracker"
+  };
+
+  syncBillMembers(merged);
+  return merged;
+}
+
+function showConflictModal(conflict) {
+  pendingConflict = conflict;
+  const modal = $("conflictModal");
+  if (!modal) return;
+
+  const localState = conflict.localState || state;
+  const remoteState = conflict.remoteState || {};
+
+  const localMembers = (localState.members || []).length;
+  const localPaid = (localState.members || []).filter((m) => m.paid).length;
+  const localTrans = (localState.income || []).length + (localState.expenses || []).length;
+
+  const remoteMembers = (remoteState.members || []).length;
+  const remotePaid = (remoteState.members || []).filter((m) => m.paid).length;
+  const remoteTrans = (remoteState.income || []).length + (remoteState.expenses || []).length;
+
+  if ($("conflictLocalTime")) $("conflictLocalTime").textContent = "Current Session";
+  if ($("conflictLocalStats")) {
+    $("conflictLocalStats").innerHTML = `
+      <li><strong>${localMembers}</strong> residents (${localPaid} marked paid)</li>
+      <li><strong>${localTrans}</strong> transactions (${(localState.income || []).length} in, ${(localState.expenses || []).length} out)</li>
+    `;
+  }
+
+  if ($("conflictRemoteRevision")) $("conflictRemoteRevision").textContent = `Revision ${conflict.remoteRevision || "Cloud"}`;
+  if ($("conflictRemoteStats")) {
+    $("conflictRemoteStats").innerHTML = `
+      <li><strong>${remoteMembers}</strong> residents (${remotePaid} marked paid)</li>
+      <li><strong>${remoteTrans}</strong> transactions (${(remoteState.income || []).length} in, ${(remoteState.expenses || []).length} out)</li>
+    `;
+  }
+
+  modal.hidden = false;
+  refreshIcons();
+}
+
+function resolveConflict(choice) {
+  if (!pendingConflict) return;
+  const conflict = pendingConflict;
+
+  if (choice === "merge") {
+    saveRecoverySnapshot("Before applying smart merge conflict resolution", state);
+    const merged = smartMergeStates(state, conflict.remoteState);
+    state = merged;
+    cloudRevision = Math.max(cloudRevision, conflict.remoteRevision);
+    cloudConflict = false;
+    pendingConflict = null;
+    $("conflictModal").hidden = true;
+    saveLocal();
+    render();
+    scheduleSave();
+    showNotice("Conflict resolved: local changes and cloud data have been merged and saved.", false);
+  } else if (choice === "keep-local") {
+    saveRecoverySnapshot("Cloud copy superseded by keeping local version", conflict.remoteState);
+    cloudRevision = Math.max(cloudRevision, conflict.remoteRevision);
+    cloudConflict = false;
+    pendingConflict = null;
+    $("conflictModal").hidden = true;
+    saveLocal();
+    render();
+    scheduleSave();
+    showNotice("Conflict resolved: your local version has been scheduled to overwrite the cloud copy.", false);
+  } else if (choice === "use-cloud") {
+    saveRecoverySnapshot("Local edits kept before accepting cloud version", state);
+    state = normalizeState(conflict.remoteState);
+    cloudRevision = conflict.remoteRevision;
+    cloudConflict = false;
+    localDirty = false;
+    pendingConflict = null;
+    try { localStorage.removeItem(unsyncedKey()); } catch { /* ignore */ }
+    $("conflictModal").hidden = true;
+    saveLocal();
+    checkAutoCycle();
+    render();
+    setStatus("Synced online", "online");
+    showNotice("Conflict resolved: cloud version accepted. Your prior local edits are saved in Recovery Snapshots.", false);
+  }
+}
+
+// ==========================================================================
+// RECOVERY SNAPSHOTS MANAGER (IN SETTINGS)
+// ==========================================================================
+
+function renderRecoverySnapshots() {
+  const container = $("recoverySnapshotsList");
+  if (!container) return;
+  try {
+    const key = `${LOCAL_KEY}-recovery`;
+    const snapshots = JSON.parse(localStorage.getItem(key) || "[]");
+    if (!snapshots.length) {
+      container.innerHTML = `<p class="empty-row">No recovery snapshots stored for this workspace yet.</p>`;
+      return;
+    }
+    container.innerHTML = snapshots.map((snap, index) => {
+      const data = snap.data || {};
+      const memberCount = (data.members || []).length;
+      const transCount = (data.income || []).length + (data.expenses || []).length;
+      const dateStr = snap.savedAt ? new Date(snap.savedAt).toLocaleString("en-PH") : "Unknown date";
+      return `
+        <div class="snapshot-item-card">
+          <div class="snapshot-meta">
+            <strong>${escapeHTML(snap.reason || "Automatic Snapshot")}</strong>
+            <small>${escapeHTML(dateStr)} • ${memberCount} resident${memberCount === 1 ? "" : "s"} • ${transCount} transaction${transCount === 1 ? "" : "s"}</small>
+          </div>
+          <div class="snapshot-actions">
+            ${unlocked ? `<button class="secondary-btn mini restore-snapshot-btn" data-index="${index}" type="button">Restore</button>` : ""}
+            <button class="ghost-btn mini download-snapshot-btn" data-index="${index}" type="button">Download</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  } catch (error) {
+    console.warn("Failed to render recovery snapshots:", error);
+    container.innerHTML = `<p class="empty-row">Could not read recovery snapshots.</p>`;
+  }
 }
 
 function daysBetween(startISO, endISO) {
@@ -1433,6 +1969,7 @@ async function unlockAdmin() {
       await signOut(auth);
       throw new Error("This account does not have access to this workspace link.");
     }
+    localStorage.setItem("apartment-last-admin-email", email);
     isPlatformAdmin = token.claims.admin === true;
     unlocked = true;
     setEditState();
@@ -1462,6 +1999,7 @@ async function createWorkspaceAccount(event) {
   try {
     const provision = httpsCallable(functions, "createWorkspaceAccount");
     const result = await provision({ name, slug, email, password });
+    recordRecentWorkspace(result.data.workspaceId, name);
     const link = `${window.location.origin}${window.location.pathname}?workspace=${encodeURIComponent(result.data.workspaceId)}`;
     output.replaceChildren();
     const message = document.createElement("p");
@@ -1538,7 +2076,22 @@ async function saveCloudNow() {
       cloudConflict = true;
       saveRecoverySnapshot("Cloud conflict: unsynced local version");
       setStatus("Sync conflict", "local");
-      showNotice("Another device changed the tracker. Your version was saved in browser recovery snapshots and was not allowed to overwrite newer cloud data. Refresh to load the latest cloud copy.", false);
+      try {
+        const remoteSnap = await getDocFromServer(docRef);
+        if (remoteSnap.exists()) {
+          pendingConflict = {
+            localState: normalizeState(state),
+            remoteState: normalizeState(remoteSnap.data()),
+            remoteRevision: Number(remoteSnap.data()?.revision || 0),
+            time: new Date()
+          };
+          showConflictModal(pendingConflict);
+          return;
+        }
+      } catch (fetchErr) {
+        console.warn("Could not fetch remote conflict document:", fetchErr);
+      }
+      showNotice("Another device changed the tracker. A conflict resolution dialog has been prepared.", false);
     } else {
       setStatus("Local only", "local");
       showNotice("Saved locally. Firestore is offline or blocked. Your changes will sync when the connection returns.", false);
@@ -1676,13 +2229,13 @@ function renderMembers() {
   box.innerHTML = state.members.map((m) => `
     <div class="member-row" data-id="${m.id}" role="button" tabindex="0" aria-label="Open profile for ${escapeAttr(profileName(m))}">
       <label class="paid-control">
-        <input type="checkbox" class="member-paid" data-id="${m.id}" ${m.paid ? "checked" : ""} />
+        <input type="checkbox" class="member-paid" data-id="${m.id}" ${m.paid ? "checked" : ""} ${unlocked ? "" : "disabled"} />
         ${avatarMarkup(m, "avatar-sm")}
         <span>${escapeHTML(profileName(m))}</span>
       </label>
       <strong>${m.paid ? money(AMOTAN_AMOUNT) : "Unpaid"}</strong>
       ${m.paid ? `<button class="mini receipt-btn" data-kind="amotan" data-id="${m.id}" type="button">Receipt</button>` : ""}
-      <button class="mini danger delete-member" data-id="${m.id}" type="button">Delete</button>
+      ${unlocked ? `<button class="mini danger delete-member" data-id="${m.id}" type="button">Delete</button>` : ""}
     </div>
   `).join("");
 }
@@ -1730,9 +2283,11 @@ function renderProfileView(member) {
         </div>
       </div>
       ${profileFieldsHTML(member)}
-      <div class="profile-actions">
-        <button id="editProfileBtn" class="primary-btn" type="button">Edit Profile</button>
-      </div>
+      ${unlocked ? `
+        <div class="profile-actions">
+          <button id="editProfileBtn" class="primary-btn" type="button">Edit Profile</button>
+        </div>
+      ` : ""}
     </div>
   `;
 }
@@ -1806,28 +2361,54 @@ function closeProfileModal() {
 }
 
 function renderTransactions() {
-  const items = [
+  let items = [
     ...state.income.map((item) => ({ ...item, kind: "income" })),
     ...state.expenses.map((item) => ({ ...item, kind: "expense" }))
   ].sort((a, b) => `${b.date || ""}${b.id}`.localeCompare(`${a.date || ""}${a.id}`));
 
+  if (activityFilterType === "income") {
+    items = items.filter((item) => item.kind === "income");
+  } else if (activityFilterType === "expense") {
+    items = items.filter((item) => item.kind === "expense");
+  }
+
+  if (activitySearchTerm) {
+    const term = activitySearchTerm.toLowerCase();
+    items = items.filter((item) =>
+      (item.description || "").toLowerCase().includes(term) ||
+      (item.category || "").toLowerCase().includes(term) ||
+      (item.paidBy || "").toLowerCase().includes(term) ||
+      (item.paymentMethod || "").toLowerCase().includes(term) ||
+      (item.date || "").includes(term) ||
+      String(item.amount || "").includes(term)
+    );
+  }
+
   const list = $("transactionsList");
   if (!items.length) {
-    list.innerHTML = `<p class="empty">No activity yet.</p>`;
-    $("activityTotals").textContent = "No entries yet.";
+    list.innerHTML = `<p class="empty">${activitySearchTerm || activityFilterType !== "all" ? "No transactions match your search filter." : "No activity yet."}</p>`;
+    $("activityTotals").textContent = `${state.income.length} money in, ${state.expenses.length} expenses.`;
     return;
   }
 
-  $("activityTotals").textContent = `${state.income.length} money in, ${state.expenses.length} expenses.`;
+  const countLabel = items.length !== (state.income.length + state.expenses.length)
+    ? `${state.income.length} money in, ${state.expenses.length} expenses (${items.length} matching).`
+    : `${state.income.length} money in, ${state.expenses.length} expenses.`;
+  $("activityTotals").textContent = countLabel;
+
   list.innerHTML = items.map((item) => `
     <div class="transaction-row ${item.kind}">
       <div class="transaction-main">
         <strong>${escapeHTML(item.description)}</strong>
-        <span>${escapeHTML(item.date)}</span>
+        <div class="transaction-meta-tags">
+          <span>${escapeHTML(item.date)}</span>
+          ${item.category ? `<span class="pill mini-pill">${escapeHTML(item.category)}</span>` : ""}
+          ${item.paymentMethod ? `<span class="pill mini-pill muted-pill">${escapeHTML(item.paymentMethod)}</span>` : ""}
+        </div>
       </div>
       <div class="transaction-meta">
         <strong>${item.kind === "income" ? "+" : "-"} ${money(item.amount)}</strong>
-        <button class="mini danger delete-transaction" data-kind="${item.kind}" data-id="${item.id}" type="button">Delete</button>
+        ${unlocked ? `<button class="mini danger delete-transaction" data-kind="${item.kind}" data-id="${item.id}" type="button">Delete</button>` : ""}
       </div>
     </div>
   `).join("");
@@ -2257,21 +2838,13 @@ function buildSummaryReport({ unpaidOnly = false } = {}) {
 }
 
 function refreshSummaryReport() {
-  let text;
-  try {
-    text = buildSummaryReport({ unpaidOnly: $("summaryUnpaidOnly").checked });
-  } catch (error) {
-    console.error("Summary report failed:", error);
-    text = `The report could not be built.\n\nReason: ${error.message}\n\nPlease send this message to your developer.`;
-  }
-  $("summaryReportText").value = text;
+  $("summaryReportText").value = buildSummaryReport({ unpaidOnly: $("summaryUnpaidOnly").checked });
 }
 
 function openSummaryReport() {
   $("summaryUnpaidOnly").checked = false;
-  if ($("summaryVersion")) $("summaryVersion").textContent = `App version ${APP_VERSION}`;
-  $("summaryModal").hidden = false; // open first so the person always sees a response
   refreshSummaryReport();
+  $("summaryModal").hidden = false;
 }
 
 function closeSummaryReport() {
@@ -2335,6 +2908,166 @@ function bindEvents() {
   setSidebarCollapsed(localStorage.getItem(SIDEBAR_KEY) === "yes");
 
   $("themeToggle")?.addEventListener("click", toggleTheme);
+
+  // Online / Offline Auto-recovery handlers
+  window.addEventListener("online", () => {
+    console.info("Network connectivity restored.");
+    if (unlocked && docRef && !cloudConflict) {
+      if (localDirty || localStorage.getItem(unsyncedKey())) {
+        setStatus("Reconnecting...", "local");
+        saveCloudNow();
+      } else {
+        setStatus("Synced online", "online");
+      }
+    } else if (unlocked && !docRef) {
+      initFirebase();
+    } else if (!unlocked) {
+      const app = getApps()[0];
+      if (app) loadPublicWorkspace(getFirestore(app));
+    }
+  });
+
+  window.addEventListener("offline", () => {
+    console.info("Network went offline.");
+    setStatus("Offline (Local only)", "local");
+  });
+
+  // Mobile and Modal Authentication
+  $("openSignInModalBtn")?.addEventListener("click", openSignInModal);
+  $("navSignInBtn")?.addEventListener("click", () => {
+    setMobileNav(false);
+    openSignInModal();
+  });
+  $("bannerSignInLink")?.addEventListener("click", openSignInModal);
+  $("closeSignInModal")?.addEventListener("click", closeSignInModal);
+  $("modalSignInCancel")?.addEventListener("click", closeSignInModal);
+  $("signInModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "signInModal") closeSignInModal();
+  });
+  $("modalSignInForm")?.addEventListener("submit", handleModalSignIn);
+  $("modalPasswordToggle")?.addEventListener("click", () => {
+    const input = $("modalPasswordInput");
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    $("modalPasswordToggle").setAttribute("aria-label", showing ? "Show password" : "Hide password");
+    $("modalPasswordToggle").innerHTML = `<i data-lucide="${showing ? "eye" : "eye-off"}" aria-hidden="true"></i>`;
+    refreshIcons();
+  });
+
+  // Nav drawer sign-out button
+  $("navSignOutBtn")?.addEventListener("click", async () => {
+    setMobileNav(false);
+    unlocked = false;
+    isPlatformAdmin = false;
+    cloudUnsubscribe?.();
+    cloudUnsubscribe = null;
+    if (auth?.currentUser) await signOut(auth);
+    docRef = null;
+    setEditState();
+    renderAnnouncements();
+    const app = getApps()[0];
+    if (app) await loadPublicWorkspace(getFirestore(app));
+  });
+
+  // Workspace Switcher Modal
+  $("workspaceLabel")?.addEventListener("click", openWorkspaceSwitcher);
+  $("closeWorkspaceSwitcher")?.addEventListener("click", closeWorkspaceSwitcher);
+  $("workspaceSwitcherModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "workspaceSwitcherModal") closeWorkspaceSwitcher();
+  });
+  $("joinWorkspaceDirectForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const slug = $("joinWorkspaceInput")?.value.trim();
+    if (slug) switchWorkspace(slug);
+  });
+  $("workspaceSwitcherModal")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".switch-to-workspace-btn");
+    if (btn && btn.dataset.slug) switchWorkspace(btn.dataset.slug);
+  });
+  $("refreshAdminWorkspacesBtn")?.addEventListener("click", renderAdminWorkspacesList);
+
+  // Copy Workspace Links
+  const getWorkspaceUrl = () => `${window.location.origin}${window.location.pathname}?workspace=${encodeURIComponent(WORKSPACE_ID)}`;
+  $("copyWorkspaceShareBtn")?.addEventListener("click", () => {
+    copyToClipboard(getWorkspaceUrl(), $("switcherCopyNotice"));
+  });
+  $("copyPublicShareBtn")?.addEventListener("click", () => {
+    copyToClipboard(getWorkspaceUrl(), $("switcherCopyNotice"));
+  });
+  $("shareWorkspaceBtn")?.addEventListener("click", () => {
+    copyToClipboard(getWorkspaceUrl());
+  });
+  $("shareTransparencyBtn")?.addEventListener("click", () => {
+    copyToClipboard(getWorkspaceUrl());
+  });
+
+  // Conflict Resolution Dialog
+  $("conflictMergeBtn")?.addEventListener("click", () => resolveConflict("merge"));
+  $("conflictKeepLocalBtn")?.addEventListener("click", () => resolveConflict("keep-local"));
+  $("conflictUseCloudBtn")?.addEventListener("click", () => resolveConflict("use-cloud"));
+
+  // Recovery Snapshots Manager
+  $("recoverySnapshotsList")?.addEventListener("click", async (e) => {
+    const restoreBtn = e.target.closest(".restore-snapshot-btn");
+    const downloadBtn = e.target.closest(".download-snapshot-btn");
+    const key = `${LOCAL_KEY}-recovery`;
+    const snapshots = JSON.parse(localStorage.getItem(key) || "[]");
+
+    if (restoreBtn) {
+      if (!requireUnlock()) return;
+      const index = Number(restoreBtn.dataset.index);
+      const target = snapshots[index];
+      if (!target?.data) return;
+      const ok = await openConfirm({
+        title: "Restore recovery snapshot?",
+        message: `Restore snapshot "${target.reason || "Snapshot"}" saved at ${new Date(target.savedAt).toLocaleString()}? Your current state will be saved as a backup first.`,
+        acceptLabel: "Restore",
+        danger: false
+      });
+      if (!ok) return;
+      saveRecoverySnapshot("Before restoring recovery snapshot", state);
+      state = normalizeState(target.data);
+      saveLocal();
+      render();
+      scheduleSave();
+      showNotice(`Restored snapshot from ${new Date(target.savedAt).toLocaleString()}.`, false);
+      renderRecoverySnapshots();
+    }
+
+    if (downloadBtn) {
+      const index = Number(downloadBtn.dataset.index);
+      const target = snapshots[index];
+      if (!target) return;
+      const blob = new Blob([JSON.stringify(target, null, 2)], { type: "application/json" });
+      downloadBlob(`recovery-snapshot-${WORKSPACE_ID}-${index + 1}.json`, blob);
+    }
+  });
+
+  $("refreshSnapshotsBtn")?.addEventListener("click", renderRecoverySnapshots);
+  $("clearSnapshotsBtn")?.addEventListener("click", async () => {
+    const ok = await openConfirm({
+      title: "Clear recovery snapshots?",
+      message: "This will remove all stored recovery snapshots for this workspace from this browser.",
+      acceptLabel: "Clear Snapshots",
+      danger: true
+    });
+    if (!ok) return;
+    localStorage.removeItem(`${LOCAL_KEY}-recovery`);
+    renderRecoverySnapshots();
+    showNotice("Recovery snapshots cleared.", false);
+  });
+
+  // Activity search and filter
+  $("activitySearchInput")?.addEventListener("input", (e) => {
+    activitySearchTerm = e.target.value.trim();
+    renderTransactions();
+  });
+  document.querySelectorAll('input[name="activityTypeFilter"]').forEach((radio) => {
+    radio.addEventListener("change", (e) => {
+      activityFilterType = e.target.value;
+      renderTransactions();
+    });
+  });
   $("mobileMenuBtn")?.addEventListener("click", () => setMobileNav(!document.body.classList.contains("nav-open")));
   $("topbarMenuBtn")?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -2365,6 +3098,8 @@ function bindEvents() {
     if (e.key === "Escape") {
       if (!$("confirmModal")?.hidden) closeConfirm(false);
       if (!$("profileModal")?.hidden) closeProfileModal();
+      if (!$("signInModal")?.hidden) closeSignInModal();
+      if (!$("workspaceSwitcherModal")?.hidden) closeWorkspaceSwitcher();
       if (!$("announcementPreviewModal")?.hidden) $("announcementPreviewModal").hidden = true;
       if (document.body.classList.contains("nav-open")) setMobileNav(false);
       setAccountMenu(false);
@@ -2392,6 +3127,8 @@ function bindEvents() {
   $("lockBtn").addEventListener("click", async () => {
     unlocked = false;
     isPlatformAdmin = false;
+    cloudUnsubscribe?.();
+    cloudUnsubscribe = null;
     if (auth?.currentUser) await signOut(auth);
     docRef = null;
     setEditState();
@@ -3001,8 +3738,14 @@ function renderBillInputs() {
     const summaryEl = $(`${key}Summary`);
     const totalsEl = $(`${key}Totals`);
 
-    if (amountInput && document.activeElement !== amountInput) amountInput.value = bill.amount || "";
-    if (dateInput && document.activeElement !== dateInput) dateInput.value = bill.date || todayISO();
+    if (amountInput) {
+      amountInput.disabled = !unlocked;
+      if (document.activeElement !== amountInput) amountInput.value = bill.amount || "";
+    }
+    if (dateInput) {
+      dateInput.disabled = !unlocked;
+      if (document.activeElement !== dateInput) dateInput.value = bill.date || todayISO();
+    }
     if (summaryEl) {
       summaryEl.innerHTML = `
         <div><strong>${money(summary.bill.amount)}</strong><span>Total Bill Amount</span></div>
@@ -3033,11 +3776,11 @@ function renderBillInputs() {
       ? members.map((member) => `
         <div class="bill-member-row">
           <label>
-            <input type="checkbox" class="${key}-member" data-id="${member.id}" ${bill.members.includes(member.id) ? "checked" : ""} />
+            <input type="checkbox" class="${key}-member" data-id="${member.id}" ${bill.members.includes(member.id) ? "checked" : ""} ${unlocked ? "" : "disabled"} />
             <span>${escapeHTML(member.name)}</span>
           </label>
           ${key === "electricity" ? `
-            <button type="button" class="mini aircon-toggle ${acMembers.has(member.id) ? "active" : ""}" data-id="${member.id}" ${!bill.members.includes(member.id) ? "disabled" : ""}>${acMembers.has(member.id) ? "Aircon User" : "Set Aircon"}</button>
+            <button type="button" class="mini aircon-toggle ${acMembers.has(member.id) ? "active" : ""}" data-id="${member.id}" ${(!bill.members.includes(member.id) || !unlocked) ? "disabled" : ""}>${acMembers.has(member.id) ? "Aircon User" : "Set Aircon"}</button>
           ` : `<span class="bill-badge">${bill.paidMembers.includes(member.id) ? "Paid" : "Unpaid"}</span>`}
         </div>
       `).join("")
@@ -3054,7 +3797,7 @@ function renderBillInputs() {
             <td>${money(row.totalDue)}</td>
             <td>
               <label class="paid-toggle ${row.paid ? "is-paid" : "is-unpaid"}">
-                <input type="checkbox" class="${key}-paid" data-id="${row.id}" ${row.paid ? "checked" : ""} />
+                <input type="checkbox" class="${key}-paid" data-id="${row.id}" ${row.paid ? "checked" : ""} ${unlocked ? "" : "disabled"} />
                 <span>${row.paid ? "Paid" : "Unpaid"}</span>
               </label>
               ${row.paid ? `<button class="mini receipt-btn" data-kind="${key}" data-id="${row.id}" type="button">Receipt</button>` : ""}
@@ -3076,7 +3819,7 @@ function renderBillInputs() {
         ? summary.unpaidMembers.map((member) => `
           <li class="unpaid-item">
             <span>${escapeHTML(member.name)} <strong>${money(summary.rows.find((row) => row.id === member.id)?.totalDue || 0)}</strong></span>
-            <button class="mini mark-paid" data-id="${member.id}" type="button">Mark Paid</button>
+            ${unlocked ? `<button class="mini mark-paid" data-id="${member.id}" type="button">Mark Paid</button>` : ""}
           </li>
         `).join("")
         : `<li class="empty-row">All members paid.</li>`;
@@ -3341,8 +4084,10 @@ function renderExpenseManagement() {
         <td>${escapeHTML(expense.paymentMethod || "-")}</td>
         <td>${escapeHTML(expense.receiptNumber || "-")}</td>
         <td class="table-actions">
-          <button class="mini edit-expense" data-id="${expense.id}" type="button">Edit</button>
-          <button class="mini danger delete-expense" data-id="${expense.id}" type="button">Delete</button>
+          ${unlocked ? `
+            <button class="mini edit-expense" data-id="${expense.id}" type="button">Edit</button>
+            <button class="mini danger delete-expense" data-id="${expense.id}" type="button">Delete</button>
+          ` : `<span class="pill mini-pill">View only</span>`}
         </td>
       </tr>
     `).join("")
@@ -3392,7 +4137,7 @@ function renderMembersInfo() {
           <td>${escapeHTML(profile.emergencyContact || "-")}</td>
           <td class="table-actions">
             <button class="mini view-member-info" data-id="${member.id}" type="button">View</button>
-            <button class="mini edit-member-info" data-id="${member.id}" type="button">Edit</button>
+            ${unlocked ? `<button class="mini edit-member-info" data-id="${member.id}" type="button">Edit</button>` : ""}
           </td>
         </tr>
       `;
@@ -3422,6 +4167,7 @@ function render() {
   renderReports();
   renderExpenseManagement();
   renderBackupSettings();
+  renderRecoverySnapshots();
   setEditState();
   refreshIcons();
 }
@@ -3477,17 +4223,28 @@ async function initFirebase() {
     // Conflict checks must start from the authoritative cloud revision, not a
     // potentially stale IndexedDB snapshot left by an earlier browser session.
     const snap = await getDocFromServer(docRef);
+    let startupConflict = null;
     if (snap.exists()) {
       console.info(`[Firestore] loaded snapshot from ${FIRESTORE_DOC_PATH}`);
+      const remoteData = normalizeState(snap.data());
+      cloudRevision = Number(snap.data().revision || 0);
       if (localStorage.getItem(unsyncedKey())) {
-        // The last session ended with edits the cloud never confirmed. Keep a copy before the cloud version replaces them.
-        saveRecoverySnapshot("Unsynced local edits replaced by cloud copy", loadLocal());
+        const unsyncedLocal = loadLocal();
+        saveRecoverySnapshot("Unsynced local edits from previous session", unsyncedLocal);
         localStorage.removeItem(unsyncedKey());
         recoveredUnsynced = true;
+        if (hasMeaningfulLocalData(unsyncedLocal) && JSON.stringify({ ...unsyncedLocal, updatedAt: null }) !== JSON.stringify({ ...remoteData, updatedAt: null })) {
+          startupConflict = {
+            localState: unsyncedLocal,
+            remoteState: remoteData,
+            remoteRevision: cloudRevision,
+            time: new Date()
+          };
+        }
       }
-      state = normalizeState(snap.data());
-      cloudRevision = Number(snap.data().revision || 0);
-      localDirty = false;
+      state = startupConflict ? startupConflict.localState : remoteData;
+      localDirty = Boolean(startupConflict);
+      cloudConflict = Boolean(startupConflict);
     } else {
       const localState = loadLocal();
       let legacyState = null;
@@ -3510,11 +4267,20 @@ async function initFirebase() {
       await setDoc(docRef, { ...state, revision: cloudRevision, updatedAt: serverTimestamp() });
     }
 
-    await setDoc(doc(db, "publicApartmentViews", WORKSPACE_ID), publicStatePayload());
-    setStatus("Synced online", "online");
-    showNotice("", true);
+    if (!startupConflict) {
+      saveLocal();
+      await setDoc(doc(db, "publicApartmentViews", WORKSPACE_ID), publicStatePayload());
+      setStatus("Synced online", "online");
+      showNotice("", true);
+    }
+    recordRecentWorkspace(WORKSPACE_ID, state.settings?.apartmentName || WORKSPACE_ID);
+    checkAutoCycle();
+    render();
 
-    if (recoveredUnsynced) {
+    if (startupConflict) {
+      setStatus("Sync conflict", "local");
+      showConflictModal(startupConflict);
+    } else if (recoveredUnsynced) {
       showNotice("Some edits from your last session never reached the cloud. They were kept in browser recovery snapshots, and the latest cloud copy is shown.", false);
     }
 
@@ -3533,12 +4299,29 @@ async function initFirebase() {
       if (remoteRevision <= cloudRevision) return;
       // A write of ours is running: its own result decides whether this is a conflict.
       if (saveInFlight) return;
+      // If a conflict dialog is already active, update its remote target without duplicating snapshots or overwriting local state.
+      if (cloudConflict) {
+        pendingConflict = {
+          localState: normalizeState(state),
+          remoteState: normalizeState(data),
+          remoteRevision,
+          time: new Date()
+        };
+        showConflictModal(pendingConflict);
+        return;
+      }
       // Never overwrite edits that have not been saved yet.
       if (localDirty) {
         cloudConflict = true;
         saveRecoverySnapshot("Cloud changed while local edits were unsaved");
         setStatus("Sync conflict", "local");
-        showNotice("Another device changed the tracker while you had unsaved edits. Your version was kept in browser recovery snapshots. Refresh to load the latest cloud copy.", false);
+        pendingConflict = {
+          localState: normalizeState(state),
+          remoteState: normalizeState(data),
+          remoteRevision,
+          time: new Date()
+        };
+        showConflictModal(pendingConflict);
         return;
       }
       applyingRemote = true;
@@ -3575,6 +4358,7 @@ async function initFirebase() {
 async function boot() {
   bindEvents();
   state = loadLocal();
+  recordRecentWorkspace(WORKSPACE_ID, state.settings?.apartmentName || WORKSPACE_ID);
   checkAutoCycle();
   render();
   setActiveView(activeView);
@@ -3618,6 +4402,13 @@ boot();
     document.querySelector(`.nav-tab[data-view="${view}"]`)?.click();
     setOpen(false);
     const focusId = button.dataset.quickFocus;
-    if (focusId) window.setTimeout(() => document.getElementById(focusId)?.focus(), 120);
+    if (focusId) {
+      window.setTimeout(() => {
+        const target = document.getElementById(focusId);
+        const parentDetails = target?.closest("details");
+        if (parentDetails) parentDetails.open = true;
+        target?.focus();
+      }, 120);
+    }
   });
 })();
