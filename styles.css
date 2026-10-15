@@ -3276,3 +3276,14 @@ textarea { min-height: 96px; }
   resize: vertical;
   box-sizing: border-box;
 }
+
+.summary-version { display: block; margin-top: 10px; color: var(--text-secondary, #667085); font-size: 0.75rem; }
+/* The sign-in box and Sign Out button were both visible because their display rules overrode [hidden]. */
+.unlock-box[hidden], #lockBtn[hidden], .topbar-actions [hidden] { display: none !important; }
+/* Breathing room inside the summary and receipt windows */
+.summary-modal, .receipt-modal { padding-bottom: 18px; }
+.summary-modal > :not(.profile-modal-head),
+.receipt-modal > :not(.profile-modal-head) { margin-left: 20px; margin-right: 20px; }
+.summary-modal > .summary-check { margin-top: 14px; }
+.receipt-modal > #receiptModalBody { margin-top: 14px; }
+.summary-text { width: calc(100% - 40px); }

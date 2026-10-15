@@ -28,6 +28,7 @@ const CYCLE_DAYS = 15;
 const ELECTRICITY_AC_CHARGE = 1350;
 const ELECTRICITY_AC_SHARE = 675;
 const params = new URLSearchParams(window.location.search);
+const APP_VERSION = "10";
 const OFFLINE_MODE = params.has("offline");
 const STORAGE_SCOPE = params.get("test");
 const requestedWorkspace = params.get("workspace") || "main";
@@ -2256,13 +2257,21 @@ function buildSummaryReport({ unpaidOnly = false } = {}) {
 }
 
 function refreshSummaryReport() {
-  $("summaryReportText").value = buildSummaryReport({ unpaidOnly: $("summaryUnpaidOnly").checked });
+  let text;
+  try {
+    text = buildSummaryReport({ unpaidOnly: $("summaryUnpaidOnly").checked });
+  } catch (error) {
+    console.error("Summary report failed:", error);
+    text = `The report could not be built.\n\nReason: ${error.message}\n\nPlease send this message to your developer.`;
+  }
+  $("summaryReportText").value = text;
 }
 
 function openSummaryReport() {
   $("summaryUnpaidOnly").checked = false;
+  if ($("summaryVersion")) $("summaryVersion").textContent = `App version ${APP_VERSION}`;
+  $("summaryModal").hidden = false; // open first so the person always sees a response
   refreshSummaryReport();
-  $("summaryModal").hidden = false;
 }
 
 function closeSummaryReport() {
