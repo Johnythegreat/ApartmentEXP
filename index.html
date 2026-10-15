@@ -83,6 +83,12 @@
       <p id="dashboardPulse">Loading apartment records...</p>
     </section>
 
+    <div class="report-bar">
+      <button id="summaryReportBtn" class="primary-btn" type="button" hidden>
+        <i data-lucide="file-text" aria-hidden="true"></i> Summary Report (for Messenger)
+      </button>
+    </div>
+
     <section class="announcement-board panel" aria-labelledby="announcementBoardTitle">
       <div class="announcement-board-head">
         <div>
@@ -734,6 +740,27 @@
       </section>
     </section>
   </main>
+
+  <div id="summaryModal" class="modal-backdrop" hidden>
+    <section class="profile-modal summary-modal" role="dialog" aria-modal="true" aria-labelledby="summaryModalTitle">
+      <div class="profile-modal-head">
+        <div>
+          <p class="eyebrow">Messenger</p>
+          <h2 id="summaryModalTitle">Summary Report</h2>
+        </div>
+        <button id="closeSummaryModal" class="ghost-btn" type="button" aria-label="Close summary report">Close</button>
+      </div>
+      <label class="summary-check">
+        <input id="summaryUnpaidOnly" type="checkbox" />
+        <span>Only show residents who still have a balance</span>
+      </label>
+      <textarea id="summaryReportText" class="summary-text" rows="16" spellcheck="false" aria-label="Summary report text"></textarea>
+      <div class="receipt-actions">
+        <button id="summaryShareBtn" class="primary-btn" type="button">Send / Share</button>
+        <button id="summaryCopyBtn" class="secondary-btn" type="button">Copy</button>
+      </div>
+    </section>
+  </div>
 
   <div id="receiptModal" class="modal-backdrop" hidden>
     <section class="profile-modal receipt-modal" role="dialog" aria-modal="true" aria-labelledby="receiptModalTitle">

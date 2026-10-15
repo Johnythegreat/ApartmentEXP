@@ -84,7 +84,10 @@ const PAGE_TITLES = {
 };
 
 const $ = (id) => document.getElementById(id);
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const money = (value) => `₱${Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -355,6 +358,7 @@ function showNotice(text = "", hidden = true) {
 function setEditState() {
   $("editState").textContent = unlocked ? "Unlocked" : "Locked";
   if ($("unlockBox")) $("unlockBox").hidden = unlocked;
+  if ($("summaryReportBtn")) $("summaryReportBtn").hidden = !unlocked;
   if ($("lockBtn")) $("lockBtn").hidden = !unlocked;
   if ($("workspaceLabel")) {
     const workspaceName = state.settings?.apartmentName || "Apartment Tracker";
@@ -2189,8 +2193,128 @@ function bindReceiptEvents() {
   });
 }
 
+// ---------- Messenger summary report ----------
+function buildSummaryReport({ unpaidOnly = false } = {}) {
+  const apartment = state.settings?.apartmentName || "Apartment Tracker";
+  const electricity = getBillData("electricity");
+  const water = getBillData("water");
+  const electricityById = new Map(electricity.rows.map((row) => [row.id, row]));
+  const waterById = new Map(water.rows.map((row) => [row.id, row]));
+
+  const people = state.members.map((member) => {
+    const parts = [{ label: "Amotan", amount: AMOTAN_AMOUNT, paid: Boolean(member.paid), note: "" }];
+    const e = electricityById.get(member.id);
+    if (e && e.totalDue > 0) {
+      parts.push({
+        label: "Electricity",
+        amount: e.totalDue,
+        paid: e.paid,
+        note: e.airconCharge ? ` (incl. aircon ${money(e.airconCharge)})` : ""
+      });
+    }
+    const w = waterById.get(member.id);
+    if (w && w.totalDue > 0) parts.push({ label: "Water", amount: w.totalDue, paid: w.paid, note: "" });
+    const total = parts.reduce((sum, p) => sum + p.amount, 0);
+    const paidTotal = parts.filter((p) => p.paid).reduce((sum, p) => sum + p.amount, 0);
+    return { name: profileName(member), parts, total, paidTotal, balance: Math.max(0, total - paidTotal) };
+  });
+
+  const shown = unpaidOnly ? people.filter((p) => p.balance > 0.004) : people;
+  const grandTotal = people.reduce((sum, p) => sum + p.total, 0);
+  const collected = people.reduce((sum, p) => sum + p.paidTotal, 0);
+  const outstanding = people.reduce((sum, p) => sum + p.balance, 0);
+
+  const lines = [`🏠 ${apartment}`, `📋 Payment Summary - ${receiptDateLabel(todayISO())}`, ""];
+  lines.push(`Amotan: ${money(AMOTAN_AMOUNT)} each`);
+  if (electricity.bill.amount > 0 && electricity.totalMembers) {
+    const ac = electricity.rows.some((row) => row.airconCharge) ? ` (+${money(ELECTRICITY_AC_SHARE)} for aircon users)` : "";
+    lines.push(`⚡ Electricity: ${money(electricity.bill.amount)} total, ${money(electricity.share)} each${ac}`);
+  }
+  if (water.bill.amount > 0 && water.totalMembers) {
+    lines.push(`💧 Water: ${money(water.bill.amount)} total, ${money(water.share)} each`);
+  }
+  lines.push("", "✅ = paid   ⏳ = not yet paid", "");
+
+  if (!shown.length) {
+    lines.push("Everyone is fully paid. Thank you! 🙏");
+  } else {
+    shown.forEach((person, index) => {
+      lines.push(`${index + 1}. ${person.name}`);
+      person.parts.forEach((p) => lines.push(`   ${p.label}: ${money(p.amount)}${p.note} ${p.paid ? "✅" : "⏳"}`));
+      lines.push(`   TOTAL: ${money(person.total)}`);
+      lines.push(person.balance > 0.004 ? `   Balance to pay: ${money(person.balance)}` : "   Fully paid ✅");
+      lines.push("");
+    });
+  }
+
+  lines.push("────────────");
+  lines.push(`Total of all residents: ${money(grandTotal)}`);
+  lines.push(`Collected: ${money(collected)}`);
+  lines.push(`Still to collect: ${money(outstanding)}`);
+  lines.push("", "Thank you! 🙏");
+  return lines.join("\n");
+}
+
+function refreshSummaryReport() {
+  $("summaryReportText").value = buildSummaryReport({ unpaidOnly: $("summaryUnpaidOnly").checked });
+}
+
+function openSummaryReport() {
+  $("summaryUnpaidOnly").checked = false;
+  refreshSummaryReport();
+  $("summaryModal").hidden = false;
+}
+
+function closeSummaryReport() {
+  $("summaryModal").hidden = true;
+}
+
+async function copySummaryReport() {
+  const area = $("summaryReportText");
+  const button = $("summaryCopyBtn");
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(area.value);
+    copied = true;
+  } catch {
+    area.focus();
+    area.select();
+    try { copied = document.execCommand("copy"); } catch { copied = false; }
+  }
+  button.textContent = copied ? "Copied ✓" : "Select text & copy";
+  setTimeout(() => { button.textContent = "Copy"; }, 1800);
+}
+
+async function shareSummaryReport() {
+  const text = $("summaryReportText").value;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "Payment Summary", text });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
+  }
+  await copySummaryReport();
+}
+
+function bindSummaryEvents() {
+  $("summaryReportBtn")?.addEventListener("click", openSummaryReport);
+  $("closeSummaryModal")?.addEventListener("click", closeSummaryReport);
+  $("summaryModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "summaryModal") closeSummaryReport();
+  });
+  $("summaryUnpaidOnly")?.addEventListener("change", refreshSummaryReport);
+  $("summaryCopyBtn")?.addEventListener("click", copySummaryReport);
+  $("summaryShareBtn")?.addEventListener("click", shareSummaryReport);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && $("summaryModal") && !$("summaryModal").hidden) closeSummaryReport();
+  });
+}
+
 function bindEvents() {
   bindReceiptEvents();
+  bindSummaryEvents();
   $("transactionDate").value = todayISO();
   $("electricityDate").value = todayISO();
   $("waterDate").value = todayISO();

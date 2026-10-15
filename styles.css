@@ -3252,3 +3252,27 @@ textarea { min-height: 96px; }
   body.printing-receipt .receipt-actions { display: none !important; }
   body.printing-receipt .receipt-paper { max-width: 420px; margin: 0 auto; }
 }
+
+
+/* ---------- Summary report ---------- */
+.report-bar { display: flex; margin: 0 0 var(--section-gap, 16px); }
+.report-bar .primary-btn { display: inline-flex; align-items: center; gap: 8px; }
+.report-bar .primary-btn[hidden] { display: none; }
+.summary-modal { max-width: 560px; }
+.summary-check { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; font-size: 0.92rem; }
+.summary-check input { width: 18px; height: 18px; flex: none; }
+.summary-text {
+  width: 100%;
+  min-height: 320px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--border, #d8e1e6);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
