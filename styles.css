@@ -3254,11 +3254,87 @@ textarea { min-height: 96px; }
 }
 
 
-/* ---------- Summary report ---------- */
-.report-bar { display: flex; margin: 0 0 var(--section-gap, 16px); }
-.report-bar .primary-btn { display: inline-flex; align-items: center; gap: 8px; }
-.report-bar .primary-btn[hidden] { display: none; }
-.summary-modal { max-width: 560px; }
+/* ---------- Summary report & Separated Balance / Activity Report ---------- */
+.report-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 var(--section-gap, 16px);
+}
+.report-bar .primary-btn,
+.report-bar .secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.report-bar .primary-btn[hidden],
+.report-bar .secondary-btn[hidden] {
+  display: none;
+}
+.balance-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.balance-report-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.summary-modal { max-width: 580px; }
+.balance-activity-modal { max-width: 640px; }
+.balance-report-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+.balance-report-kpi {
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #d8e1e6);
+  background: var(--surface-secondary, #f8fafc);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.balance-report-kpi span {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.balance-report-kpi strong {
+  font-size: 0.96rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.balance-report-kpi.is-positive strong {
+  color: #059669;
+}
+.balance-report-kpi.is-negative strong {
+  color: #e11d48;
+}
+.balance-report-kpi.is-total {
+  border-color: var(--primary, #0f766e);
+  background: color-mix(in srgb, var(--primary, #0f766e) 10%, var(--surface, #fff));
+}
+.balance-report-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
 .summary-check { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; font-size: 0.92rem; }
 .summary-check input { width: 18px; height: 18px; flex: none; }
 .summary-text {

@@ -108,8 +108,11 @@
     </section>
 
     <div class="report-bar">
-      <button id="summaryReportBtn" class="primary-btn" type="button" hidden>
-        <i data-lucide="file-text" aria-hidden="true"></i> Summary Report (for Messenger)
+      <button id="summaryReportBtn" class="primary-btn" type="button">
+        <i data-lucide="users" aria-hidden="true"></i> Resident Dues Summary (Messenger)
+      </button>
+      <button id="balanceActivityReportBtn" class="secondary-btn report-bar-secondary" type="button">
+        <i data-lucide="wallet" aria-hidden="true"></i> Balance &amp; Activity Report (Messenger)
       </button>
     </div>
 
@@ -127,7 +130,12 @@
 
     <section class="summary-grid" aria-label="Budget summary">
       <article class="summary-card balance-card">
-        <span>Available Balance</span>
+        <div class="balance-card-head">
+          <span>Available Balance</span>
+          <button id="openBalanceCardReportBtn" class="mini balance-report-trigger" type="button" title="Open Available Balance &amp; Activity Summary for Messenger">
+            <i data-lucide="copy" aria-hidden="true"></i> Messenger Report
+          </button>
+        </div>
         <strong id="remainingBalance">₱0.00</strong>
         <small id="summaryBreakdown">No payments or expenses yet.</small>
       </article>
@@ -229,6 +237,9 @@
             <h2>Activity</h2>
             <p>Income and expenses.</p>
           </div>
+          <button id="openActivityPanelReportBtn" class="secondary-btn mini" type="button">
+            <i data-lucide="clipboard-list" aria-hidden="true"></i> Balance &amp; Activity Report
+          </button>
         </div>
 
         <details id="addTransactionDisclosure" class="inline-disclosure admin-only">
@@ -290,6 +301,9 @@
             <h2>Electricity Bill</h2>
             <p>Includes ₱675 per selected aircon user.</p>
           </div>
+          <button id="copyElectricityStatusBtn" class="secondary-btn mini" type="button">
+            <i data-lucide="copy" aria-hidden="true"></i> Copy Status (Messenger)
+          </button>
         </div>
         <div class="bill-controls">
           <label>
@@ -344,6 +358,9 @@
             <h2>Water Bill</h2>
             <p>Split equally between selected members.</p>
           </div>
+          <button id="copyWaterStatusBtn" class="secondary-btn mini" type="button">
+            <i data-lucide="copy" aria-hidden="true"></i> Copy Status (Messenger)
+          </button>
         </div>
         <div class="bill-controls">
           <label>
@@ -562,6 +579,9 @@
             <p>Income, spending, and collections.</p>
           </div>
           <div class="report-actions">
+            <button id="openReportsBalanceSummaryBtn" class="primary-btn" type="button">
+              <i data-lucide="message-circle" aria-hidden="true"></i> Balance &amp; Activity (Messenger)
+            </button>
             <button id="exportPdfBtn" class="secondary-btn" type="button">PDF</button>
             <button id="exportExcelBtn" class="secondary-btn" type="button">Excel</button>
             <button id="exportCsvBtn" class="secondary-btn" type="button">CSV</button>
@@ -825,8 +845,61 @@
       </label>
       <textarea id="summaryReportText" class="summary-text" rows="16" spellcheck="false" aria-label="Summary report text"></textarea>
       <div class="receipt-actions">
-        <button id="summaryShareBtn" class="primary-btn" type="button">Send / Share</button>
-        <button id="summaryCopyBtn" class="secondary-btn" type="button">Copy</button>
+        <button id="summaryCopyBtn" class="primary-btn" type="button">Copy for Messenger</button>
+        <button id="summaryShareBtn" class="secondary-btn" type="button">Send / Share</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="balanceActivityModal" class="modal-backdrop" hidden>
+    <section class="profile-modal summary-modal balance-activity-modal" role="dialog" aria-modal="true" aria-labelledby="balanceActivityModalTitle">
+      <div class="profile-modal-head">
+        <div>
+          <p class="eyebrow">Separated Messenger Report</p>
+          <h2 id="balanceActivityModalTitle">Available Balance &amp; All Activities</h2>
+        </div>
+        <button id="closeBalanceActivityModal" class="ghost-btn" type="button" aria-label="Close balance and activity report">Close</button>
+      </div>
+
+      <div class="balance-report-kpi-grid" aria-label="Available balance breakdown">
+        <div class="balance-report-kpi">
+          <span>Carried Sobra</span>
+          <strong id="balModalCarryover">₱0.00</strong>
+        </div>
+        <div class="balance-report-kpi is-positive">
+          <span>Paid Amotan</span>
+          <strong id="balModalAmotan">+₱0.00</strong>
+        </div>
+        <div class="balance-report-kpi is-positive">
+          <span>Money In</span>
+          <strong id="balModalIncome">+₱0.00</strong>
+        </div>
+        <div class="balance-report-kpi is-negative">
+          <span>Expenses</span>
+          <strong id="balModalExpense">-₱0.00</strong>
+        </div>
+        <div class="balance-report-kpi is-total">
+          <span>Available Balance</span>
+          <strong id="balModalRemaining">₱0.00</strong>
+        </div>
+      </div>
+
+      <div class="balance-report-controls">
+        <div class="segmented segmented-compact" role="radiogroup" aria-label="Activity report filter">
+          <label><input type="radio" name="balanceReportScope" value="all" checked /><span>All Activities</span></label>
+          <label><input type="radio" name="balanceReportScope" value="income" /><span>Money In Only</span></label>
+          <label><input type="radio" name="balanceReportScope" value="expense" /><span>Expenses Only</span></label>
+        </div>
+        <label class="summary-check">
+          <input id="balanceIncludePaidMembers" type="checkbox" />
+          <span>Include names of residents who paid ₱700 Amotan</span>
+        </label>
+      </div>
+
+      <textarea id="balanceActivityReportText" class="summary-text" rows="16" spellcheck="false" aria-label="Available balance and activity report text"></textarea>
+      <div class="receipt-actions">
+        <button id="balanceActivityCopyBtn" class="primary-btn" type="button">Copy for Messenger</button>
+        <button id="balanceActivityShareBtn" class="secondary-btn" type="button">Send / Share</button>
       </div>
     </section>
   </div>

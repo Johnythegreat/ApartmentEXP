@@ -368,7 +368,8 @@ function setEditState() {
   $("editState").textContent = isUnlocked ? "Unlocked" : "Locked";
   if ($("unlockBox")) $("unlockBox").hidden = isUnlocked;
   if ($("openSignInModalBtn")) $("openSignInModalBtn").hidden = isUnlocked;
-  if ($("summaryReportBtn")) $("summaryReportBtn").hidden = !isUnlocked;
+  if ($("summaryReportBtn")) $("summaryReportBtn").hidden = false;
+  if ($("balanceActivityReportBtn")) $("balanceActivityReportBtn").hidden = false;
   if ($("lockBtn")) $("lockBtn").hidden = !isUnlocked;
 
   // Mobile nav drawer account info
@@ -2863,8 +2864,8 @@ async function copySummaryReport() {
     area.select();
     try { copied = document.execCommand("copy"); } catch { copied = false; }
   }
-  button.textContent = copied ? "Copied ✓" : "Select text & copy";
-  setTimeout(() => { button.textContent = "Copy"; }, 1800);
+  button.textContent = copied ? "Copied for Messenger ✓" : "Select text & copy";
+  setTimeout(() => { button.textContent = "Copy for Messenger"; }, 1800);
 }
 
 async function shareSummaryReport() {
@@ -2880,6 +2881,206 @@ async function shareSummaryReport() {
   await copySummaryReport();
 }
 
+// ---------- Separated Available Balance & All Activities (Money In & Expense) Messenger Report ----------
+function getSelectedBalanceReportScope() {
+  const checked = document.querySelector('input[name="balanceReportScope"]:checked');
+  return checked ? checked.value : "all";
+}
+
+function buildBalanceActivityReport({ scope = "all", includePaidMembers = false } = {}) {
+  const apartment = state.settings?.apartmentName || "Apartment Tracker";
+  const totals = calcTotals();
+  const carryover = Number(state.carryover || 0);
+  const totalResidents = state.members.length;
+  const paidResidents = state.members.filter((m) => m.paid);
+
+  const incomeItems = [...state.income].sort((a, b) => `${b.date || ""}${b.id}`.localeCompare(`${a.date || ""}${a.id}`));
+  const expenseItems = [...state.expenses].sort((a, b) => `${b.date || ""}${b.id}`.localeCompare(`${a.date || ""}${a.id}`));
+
+  if ($("balModalCarryover")) $("balModalCarryover").textContent = money(carryover);
+  if ($("balModalAmotan")) $("balModalAmotan").textContent = `+${money(totals.amotanTotal)}`;
+  if ($("balModalIncome")) $("balModalIncome").textContent = `+${money(totals.incomeTotal)}`;
+  if ($("balModalExpense")) $("balModalExpense").textContent = `-${money(totals.expenseTotal)}`;
+  if ($("balModalRemaining")) $("balModalRemaining").textContent = money(totals.remaining);
+
+  const lines = [
+    `🏠 ${apartment}`,
+    `📊 Available Balance & Activity Report - ${receiptDateLabel(todayISO())}`,
+    `Cycle Started: ${state.cycleStarted || todayISO()}`,
+    "",
+    "💰 AVAILABLE BALANCE BREAKDOWN",
+    `• Carried Sobra: ${money(carryover)}`,
+    `• Paid Amotan (${totals.paidMembers}/${totalResidents} × ${money(AMOTAN_AMOUNT)}): +${money(totals.amotanTotal)}`,
+    `• Extra Money In (${incomeItems.length}): +${money(totals.incomeTotal)}`,
+    `• Total Expenses (${expenseItems.length}): -${money(totals.expenseTotal)}`,
+    "────────────────────",
+    `✅ AVAILABLE BALANCE: ${money(totals.remaining)}`,
+    ""
+  ];
+
+  if (includePaidMembers) {
+    lines.push(`👥 PAID AMOTAN RESIDENTS (${paidResidents.length}/${totalResidents})`);
+    if (!paidResidents.length) {
+      lines.push("   No Amotan payments recorded yet.");
+    } else {
+      paidResidents.forEach((m, i) => {
+        lines.push(`   ${i + 1}. ${profileName(m)} — +${money(AMOTAN_AMOUNT)} ✅`);
+      });
+    }
+    lines.push("");
+  }
+
+  if (scope === "all" || scope === "income") {
+    lines.push(`📥 MONEY IN ACTIVITIES (${incomeItems.length}) — Subtotal: +${money(totals.incomeTotal)}`);
+    if (!incomeItems.length) {
+      lines.push("   No extra Money In entries this cycle.");
+    } else {
+      incomeItems.forEach((item, index) => {
+        const datePart = item.date ? `[${item.date}] ` : "";
+        lines.push(`   ${index + 1}. ${datePart}${item.description || "Money In"} — +${money(item.amount)}`);
+      });
+    }
+    lines.push("");
+  }
+
+  if (scope === "all" || scope === "expense") {
+    lines.push(`📤 EXPENSE ACTIVITIES (${expenseItems.length}) — Subtotal: -${money(totals.expenseTotal)}`);
+    if (!expenseItems.length) {
+      lines.push("   No expense entries recorded this cycle.");
+    } else {
+      expenseItems.forEach((item, index) => {
+        const datePart = item.date ? `[${item.date}] ` : "";
+        const catPart = item.category ? ` (${item.category})` : "";
+        const metaParts = [item.paidBy ? `Paid by ${item.paidBy}` : "", item.paymentMethod || ""].filter(Boolean);
+        const metaSuffix = metaParts.length ? ` • ${metaParts.join(" via ")}` : "";
+        lines.push(`   ${index + 1}. ${datePart}${item.description || "Expense"}${catPart} — -${money(item.amount)}${metaSuffix}`);
+      });
+    }
+    lines.push("");
+  }
+
+  lines.push("────────────────────");
+  lines.push(`Total Funds In (Sobra + Amotan + Money In): ${money(carryover + totals.amotanTotal + totals.incomeTotal)}`);
+  lines.push(`Total Spent (Expenses): -${money(totals.expenseTotal)}`);
+  lines.push(`Remaining Available Balance: ${money(totals.remaining)}`);
+  lines.push("", "Thank you! 🙏");
+  return lines.join("\n");
+}
+
+function refreshBalanceActivityReport() {
+  const area = $("balanceActivityReportText");
+  if (!area) return;
+  const scope = getSelectedBalanceReportScope();
+  const includePaidMembers = Boolean($("balanceIncludePaidMembers")?.checked);
+  area.value = buildBalanceActivityReport({ scope, includePaidMembers });
+}
+
+function openBalanceActivityReport(defaultScope = "all") {
+  const radio = document.querySelector(`input[name="balanceReportScope"][value="${defaultScope}"]`);
+  if (radio) radio.checked = true;
+  refreshBalanceActivityReport();
+  if ($("balanceActivityModal")) $("balanceActivityModal").hidden = false;
+  refreshIcons();
+}
+
+function closeBalanceActivityReport() {
+  if ($("balanceActivityModal")) $("balanceActivityModal").hidden = true;
+}
+
+async function copyBalanceActivityReport() {
+  const area = $("balanceActivityReportText");
+  const button = $("balanceActivityCopyBtn");
+  if (!area || !button) return;
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(area.value);
+    copied = true;
+  } catch {
+    area.focus();
+    area.select();
+    try { copied = document.execCommand("copy"); } catch { copied = false; }
+  }
+  button.textContent = copied ? "Copied for Messenger ✓" : "Select text & copy";
+  if (copied) showNotice("Balance & Activity Report copied! Ready to paste in Messenger.", false);
+  setTimeout(() => { button.textContent = "Copy for Messenger"; }, 1800);
+}
+
+async function shareBalanceActivityReport() {
+  const area = $("balanceActivityReportText");
+  if (!area) return;
+  const text = area.value;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "Balance & Activity Summary", text });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
+  }
+  await copyBalanceActivityReport();
+}
+
+function buildUtilityBillStatusReport(billKey) {
+  const apartment = state.settings?.apartmentName || "Apartment Tracker";
+  const data = getBillData(billKey);
+  const isElec = billKey === "electricity";
+  const icon = isElec ? "⚡" : "💧";
+  const title = isElec ? "Electricity Bill" : "Water Bill";
+  const lines = [
+    `🏠 ${apartment}`,
+    `${icon} ${title} Status - ${receiptDateLabel(data.bill.date || todayISO())}`,
+    `Total Bill: ${money(data.bill.amount)} (${data.totalMembers} members)`,
+    `Base Share: ${money(data.share)} each${isElec && data.rows.some((r) => r.airconCharge) ? ` (+${money(ELECTRICITY_AC_SHARE)} Aircon)` : ""}`,
+    "",
+    `✅ PAID (${data.paidMembers.length}/${data.totalMembers}) — Collected: ${money(data.collected)}`
+  ];
+  const paidRows = data.rows.filter((r) => r.paid);
+  if (!paidRows.length) {
+    lines.push("   None yet");
+  } else {
+    paidRows.forEach((r, idx) => {
+      lines.push(`   ${idx + 1}. ${r.name}: ${money(r.totalDue)} ✅`);
+    });
+  }
+  lines.push("", `⏳ UNPAID (${data.unpaidMembers.length}/${data.totalMembers}) — Remaining: ${money(data.outstanding)}`);
+  const unpaidRows = data.rows.filter((r) => !r.paid);
+  if (!unpaidRows.length) {
+    lines.push("   Everyone is paid! 🎉");
+  } else {
+    unpaidRows.forEach((r, idx) => {
+      lines.push(`   ${idx + 1}. ${r.name}: ${money(r.totalDue)} ⏳`);
+    });
+  }
+  return lines.join("\n");
+}
+
+async function copyUtilityBillStatus(billKey, btnEl) {
+  const text = buildUtilityBillStatusReport(billKey);
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    copied = true;
+  } catch {
+    const temp = document.createElement("textarea");
+    temp.value = text;
+    document.body.appendChild(temp);
+    temp.select();
+    try { copied = document.execCommand("copy"); } catch { copied = false; }
+    temp.remove();
+  }
+  if (btnEl) {
+    const orig = btnEl.innerHTML;
+    btnEl.textContent = copied ? "Copied ✓" : "Copy failed";
+    setTimeout(() => {
+      btnEl.innerHTML = orig;
+      refreshIcons();
+    }, 1800);
+  }
+  if (copied) {
+    showNotice(`${billKey === "electricity" ? "Electricity" : "Water"} bill Paid/Unpaid status copied for Messenger!`, false);
+  }
+}
+
 function bindSummaryEvents() {
   $("summaryReportBtn")?.addEventListener("click", openSummaryReport);
   $("closeSummaryModal")?.addEventListener("click", closeSummaryReport);
@@ -2889,8 +3090,30 @@ function bindSummaryEvents() {
   $("summaryUnpaidOnly")?.addEventListener("change", refreshSummaryReport);
   $("summaryCopyBtn")?.addEventListener("click", copySummaryReport);
   $("summaryShareBtn")?.addEventListener("click", shareSummaryReport);
+
+  // Separated Balance & Activity Summary Report bindings
+  $("balanceActivityReportBtn")?.addEventListener("click", () => openBalanceActivityReport("all"));
+  $("openBalanceCardReportBtn")?.addEventListener("click", () => openBalanceActivityReport("all"));
+  $("openActivityPanelReportBtn")?.addEventListener("click", () => openBalanceActivityReport("all"));
+  $("openReportsBalanceSummaryBtn")?.addEventListener("click", () => openBalanceActivityReport("all"));
+  $("closeBalanceActivityModal")?.addEventListener("click", closeBalanceActivityReport);
+  $("balanceActivityModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "balanceActivityModal") closeBalanceActivityReport();
+  });
+  document.querySelectorAll('input[name="balanceReportScope"]').forEach((radio) => {
+    radio.addEventListener("change", refreshBalanceActivityReport);
+  });
+  $("balanceIncludePaidMembers")?.addEventListener("change", refreshBalanceActivityReport);
+  $("balanceActivityCopyBtn")?.addEventListener("click", copyBalanceActivityReport);
+  $("balanceActivityShareBtn")?.addEventListener("click", shareBalanceActivityReport);
+
+  // Utility bill status Messenger copy buttons
+  $("copyElectricityStatusBtn")?.addEventListener("click", (e) => copyUtilityBillStatus("electricity", e.currentTarget));
+  $("copyWaterStatusBtn")?.addEventListener("click", (e) => copyUtilityBillStatus("water", e.currentTarget));
+
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && $("summaryModal") && !$("summaryModal").hidden) closeSummaryReport();
+    if (e.key === "Escape" && $("balanceActivityModal") && !$("balanceActivityModal").hidden) closeBalanceActivityReport();
   });
 }
 
@@ -4168,6 +4391,9 @@ function render() {
   renderExpenseManagement();
   renderBackupSettings();
   renderRecoverySnapshots();
+  if ($("balanceActivityModal") && !$("balanceActivityModal").hidden) {
+    refreshBalanceActivityReport();
+  }
   setEditState();
   refreshIcons();
 }
